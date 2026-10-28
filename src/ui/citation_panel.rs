@@ -232,7 +232,7 @@ impl CitationPanel {
         let kartoteka_item = item("Open Kartoteka", "Open the Kartoteka app");
         let keep_copy_check = CheckButton::with_label("Keep a copy in the project");
         keep_copy_check.set_tooltip_text(Some(
-            "When you choose a library stored elsewhere, keep an up-to-date copy in this folder so your document compiles on any computer. Copies already made keep updating.",
+            "When you choose a library stored elsewhere, keep an up-to-date copy in this folder so your document works on any computer. Copies already made keep updating.",
         ));
         keep_copy_check.set_margin_start(8);
         let tell_kartoteka_check =

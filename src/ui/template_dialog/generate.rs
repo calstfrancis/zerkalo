@@ -1198,7 +1198,7 @@ pub(crate) fn margin_values(idx: usize, custom_in: &str) -> (String, String, Str
     }
 }
 
-/// Resolves the Font Size ComboRow selection to a Typst size string, reading
+/// Resolves the Font size ComboRow selection to a Typst size string, reading
 /// the custom SpinRow's value when "Custom…" (index 4) is selected.
 pub(crate) fn resolve_font_size(selected: u32, custom_pt: f64) -> String {
     match selected {

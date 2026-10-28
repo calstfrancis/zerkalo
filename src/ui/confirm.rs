@@ -21,7 +21,8 @@ pub fn confirm_destructive(
     on_confirm: impl Fn() + 'static,
 ) {
     let dlg = adw::MessageDialog::new(parent, Some(heading), Some(body));
-    dlg.add_response("cancel", "Cancel");
+    // Says what choosing it means, not a bare "Cancel" (docs/VOICE.md rule 3).
+    dlg.add_response("cancel", "Keep it as it is");
     dlg.add_response("confirm", action_label);
     dlg.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
     dlg.set_default_response(Some("cancel"));
@@ -73,7 +74,7 @@ pub fn confirm_trash(
         parent,
         "Move to trash?",
         &format!("'{name}' will be moved to the system trash."),
-        "Move to Trash",
+        "Move to trash",
         move || {
             let _ = gtk4::gio::File::for_path(&path).trash(None::<&gtk4::gio::Cancellable>);
             after(&path);

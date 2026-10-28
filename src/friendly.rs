@@ -80,6 +80,18 @@ mod tests {
             "Failed to check the import",
             "\"Error: {e}\"",
             "Failed to start command",
+            "Save & Sync",
+            "Save & sync",
+            "sync button",
+            "Back Up button",
+            "Compiled successfully",
+            "\"Recompile",
+            "\"Compiling",
+            "auto compile",
+            "manual compile",
+            "\"Toggle ",
+            "Label(\"Toggle",
+            "a few seconds",
         ];
         fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
             for e in std::fs::read_dir(dir).unwrap().flatten() {
@@ -146,5 +158,79 @@ mod tests {
         assert_eq!(io_reason(&full), "the disk is full");
         let denied = std::io::Error::from(ErrorKind::PermissionDenied);
         assert!(!io_reason(&denied).contains("os error"));
+    }
+
+    /// docs/VOICE.md rule 8: labels are in sentence case. Names keep their
+    /// capitals; everything after the first word is otherwise lower case.
+    #[test]
+    fn labels_are_in_sentence_case() {
+        const NAMES: &[&str] = &[
+            "Zerkalo",
+            "GitHub",
+            "GitHub's",
+            "Kartoteka",
+            "Skrizhal",
+            "Pereplyot",
+            "Typst",
+            "CV",
+            "PDF",
+            "URL",
+            "GOST",
+            "BibTeX",
+            "Zotero",
+            "Word",
+            "LaTeX",
+            "EPUB",
+            "HTML",
+            "ODT",
+            "RTF",
+            "DOCX",
+            "OpenDocument",
+            "Markdown",
+            "CSL",
+            "I",
+            "Ctrl",
+            "Library",
+        ];
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let pattern = regex::Regex::new(
+            r#"(make_menu_item|make_submenu_button|with_label|section_label|set_title|\.title|\bitem|label: )\(?"([^"\\]+)""#,
+        )
+        .unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        walk(&root.join("src/ui"), &mut files);
+        let mut hits = Vec::new();
+        for f in files {
+            let text = std::fs::read_to_string(&f).unwrap();
+            let body = text.split("#[cfg(test)]").next().unwrap_or(&text);
+            for m in pattern.captures_iter(body) {
+                let label = &m[2];
+                let shouting = label.split(' ').skip(1).any(|w| {
+                    let core = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'');
+                    let mut chars = core.chars();
+                    let first_upper = chars.next().is_some_and(|c| c.is_uppercase());
+                    let rest_lower = chars.all(|c| !c.is_uppercase());
+                    first_upper && rest_lower && core.len() > 1 && !NAMES.contains(&core)
+                });
+                if shouting {
+                    hits.push(format!("{}: {label}", f.display()));
+                }
+            }
+        }
+        assert!(
+            hits.is_empty(),
+            "labels in Title Case:\n{}",
+            hits.join("\n")
+        );
     }
 }

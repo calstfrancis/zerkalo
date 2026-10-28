@@ -427,7 +427,7 @@ pub fn apply_body_splice_reporting(existing: &str, fresh: &str) -> (String, Spli
             // the new style crosses that sidebar <-> flat boundary, blindly
             // preserving the old body (as the bib-style-only `updated_body`
             // above does) would keep rendering the old column layout forever,
-            // no matter what style is picked in "Update Template Settings" —
+            // no matter what style is picked in "Update template Settings" —
             // regenerate the body to match instead. Mirrors
             // EditorPane::apply_cv_style's identical fix for the in-document
             // quick-switcher.

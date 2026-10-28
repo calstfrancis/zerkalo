@@ -42,7 +42,7 @@ impl WelcomeWindow {
         let title = if is_first_run {
             "Welcome to Zerkalo"
         } else {
-            "What's New"
+            "What's new"
         };
         let window = adw::Window::builder()
             .title(title)
@@ -103,7 +103,7 @@ impl WelcomeWindow {
             body.append(&why);
 
             body.append(&Separator::new(Orientation::Horizontal));
-            body.append(&section_label("How Zerkalo Works"));
+            body.append(&section_label("How Zerkalo works"));
             let intro = Label::new(Some(
                 "Zerkalo is a Typst editor with a live preview pane. You write in Typst markup \
                  on the left and see the formatted PDF on the right. Your document is saved and \
@@ -149,25 +149,25 @@ impl WelcomeWindow {
             body.append(&diagram_note);
 
             body.append(&Separator::new(Orientation::Horizontal));
-            body.append(&section_label("Getting Started"));
+            body.append(&section_label("Getting started"));
             for item in [
                 "Open or create a .typ file from the title-bar dropdown",
                 crate::keybindings::shown("Press {save} to save — the preview on the right updates straight away"),
                 "Use the formatting bar above the editor for Bold, Italic, and Headings",
-                "Use Change Document Style, under Document Tools in the ≡ menu, to change title, author, and style",
+                "Use Change document style, under Document tools in the ≡ menu, to change title, author, and style",
                 "The Outline panel on the left shows your document structure — click to navigate",
             ] {
                 body.append(&bullet_row(item));
             }
 
             body.append(&Separator::new(Orientation::Horizontal));
-            body.append(&section_label("When You're Ready"));
+            body.append(&section_label("When you're ready"));
             for item in [
                 "Type @ to insert a citation, once you've added a bibliography from the Citations panel",
                 "Type # to see suggestions for tables, figures, and other building blocks",
-                "Zerkalo hides the technical setup lines at the top of the file — change them from Change Document Style (≡ → Document Tools), not by scrolling up",
+                "Zerkalo hides the technical setup lines at the top of the file — change them from Change document style (≡ → Document tools), not by scrolling up",
                 "Click \"show template\" in the status bar at the bottom if you ever want to see that setup section directly",
-                crate::keybindings::shown("Forgot what a button does? Press {help_overlay} to label everything on screen, or replay this walkthrough anytime from ≡ → Help & About → Take the Tour"),
+                crate::keybindings::shown("Forgot what a button does? Press {help_overlay} to label everything on screen, or replay this walkthrough anytime from ≡ → Help & about → Take the tour"),
             ] {
                 body.append(&bullet_row(item));
             }
@@ -179,9 +179,9 @@ impl WelcomeWindow {
                     body.append(&Separator::new(Orientation::Horizontal));
                 }
                 let heading = if rel.name.is_empty() {
-                    format!("What's New in {}", rel.version)
+                    format!("What's new in {}", rel.version)
                 } else {
-                    format!("What's New in {} \u{201c}{}\u{201d}", rel.version, rel.name)
+                    format!("What's new in {} \u{201c}{}\u{201d}", rel.version, rel.name)
                 };
                 body.append(&section_label(&heading));
                 if !rel.subtitle.is_empty() {
@@ -202,7 +202,7 @@ impl WelcomeWindow {
         }
 
         body.append(&Separator::new(Orientation::Horizontal));
-        body.append(&section_label("Keyboard Shortcuts"));
+        body.append(&section_label("Keyboard shortcuts"));
         for (key, desc) in [
             (
                 crate::keybindings::shown("{save}"),

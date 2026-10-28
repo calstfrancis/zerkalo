@@ -77,9 +77,9 @@ pub(super) fn build_header() -> HeaderWidgets {
 
     // Start: sidebar toggle + insert panel toggle (flat, left side)
     let sidebar_btn = Button::from_icon_name("sidebar-show-symbolic");
-    sidebar_btn.set_tooltip_text(Some("Toggle sidebar"));
+    sidebar_btn.set_tooltip_text(Some("Show or hide the sidebar"));
     sidebar_btn.add_css_class("flat");
-    sidebar_btn.update_property(&[gtk4::accessible::Property::Label("Toggle sidebar")]);
+    sidebar_btn.update_property(&[gtk4::accessible::Property::Label("Sidebar")]);
     header.pack_start(&sidebar_btn);
 
     // Every new document now lives in the Zerkalo folder, so the Library is
@@ -110,7 +110,7 @@ pub(super) fn build_header() -> HeaderWidgets {
     style_btn.add_css_class("caption");
     style_btn.set_tooltip_text(Some(
         "Switch citation & heading style instantly (Ctrl+Z to undo). For CV, title \
-         page, and other document settings, use ≡ → Change Document Style…",
+         page, and other document settings, use ≡ → Change document style…",
     ));
     {
         let sp = style_popover.clone();
@@ -140,7 +140,9 @@ pub(super) fn build_header() -> HeaderWidgets {
     let draft_toggle = ToggleButton::new();
     draft_toggle.set_child(Some(&draft_label));
     draft_toggle.add_css_class("flat");
-    draft_toggle.set_tooltip_text(Some("Toggle Draft (fast preview) / Final (full quality)"));
+    draft_toggle.set_tooltip_text(Some(
+        "Switch the preview between draft (fast) and final (full quality)",
+    ));
 
     // ── Primary header buttons (packed together at end of section) ────────
     let preview_label = Label::new(Some("Preview"));
@@ -245,11 +247,11 @@ pub(super) fn build_header() -> HeaderWidgets {
 
     // ── Popover layout ────────────────────────────────────────────────────
     //
-    // Down to five top-level clusters (New & Open, Save, Export & Print
+    // Down to five top-level clusters (New & Open, Save, Export & print
     // — flyout, Settings, Help — flyout), each holding only what most users
     // reach for often. Rarely-touched or technical actions (template repair,
     // the project file-graph, git history) are folded into two flyout
-    // submenus — Document Tools and Help & About — via `make_submenu_button`,
+    // submenus — Document tools and Help & about — via `make_submenu_button`,
     // rather than sitting as top-level rows nobody but a power user ever
     // clicks. A first pass labelled each cluster with `fond_section_header`
     // (the sidebar panels' section-header widget), which turned out to make
@@ -271,12 +273,12 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_popover_box.append(&menu_import_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
 
-    // Document Tools: everything that acts on the current document but isn't
+    // Document tools: everything that acts on the current document but isn't
     // an everyday action — inserting a table is the only one of these most
     // users touch regularly, the rest (style/template settings, citations,
     // the project file map) are occasional or advanced.
     let document_tools_btn = super::make_submenu_button(
-        "Document Tools",
+        "Document tools",
         &[
             menu_table_item.clone(),
             menu_refs_item.clone(),
@@ -296,7 +298,7 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_popover_box.append(&menu_recover_item);
     menu_popover_box.append(&menu_get_latest_item);
     let version_history_btn = super::make_submenu_button(
-        "Version History",
+        "Version history",
         &[
             menu_snapshots_item.clone(),
             menu_history_item.clone(),
@@ -309,7 +311,7 @@ pub(super) fn build_header() -> HeaderWidgets {
     // Export & print: three ways of getting the document out of Zerkalo,
     // grouped under one flyout instead of three top-level rows.
     let export_print_btn = super::make_submenu_button(
-        "Export & Print",
+        "Export & print",
         &[
             menu_export_item.clone(),
             menu_export_web_item.clone(),
@@ -328,12 +330,12 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_popover_box.append(&gost_menu_slot);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
 
-    // Help & About: What's New and Writing Stats are both "look at
+    // Help & about: What's new and Writing stats are both "look at
     // information about the app or your work," the same drawer as
     // About/Help/Shortcuts, rather than reading as settings — and none of
     // these are everyday actions, so one flyout replaces five top-level rows.
     let help_about_btn = super::make_submenu_button(
-        "Help & About",
+        "Help & about",
         &[
             menu_writing_stats_item.clone(),
             menu_help_item.clone(),

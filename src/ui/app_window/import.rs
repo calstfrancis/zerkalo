@@ -56,7 +56,7 @@ pub(super) const IMPORT_FORMATS: &[ImportFormat] = &[
         pandoc_from: "markdown",
     },
     ImportFormat {
-        label: "OpenDocument Text (.odt)",
+        label: "OpenDocument text (.odt)",
         icon: "x-office-document-symbolic",
         patterns: &["*.odt"],
         extensions: &["odt"],
@@ -80,7 +80,7 @@ pub(super) const IMPORT_FORMATS: &[ImportFormat] = &[
         pandoc_from: "epub",
     },
     ImportFormat {
-        label: "Rich Text (.rtf)",
+        label: "Rich text (.rtf)",
         icon: "x-office-document-symbolic",
         patterns: &["*.rtf"],
         extensions: &["rtf"],
@@ -120,21 +120,21 @@ fn show_import_history_dialog_filtered(
     let log = crate::import_log::ImportLog::load();
 
     let dlg = adw::Window::new();
-    dlg.set_title(Some("Import History"));
+    dlg.set_title(Some("Import history"));
     dlg.set_default_size(480, 460);
     dlg.set_transient_for(Some(window));
     dlg.set_modal(true);
 
     let header = adw::HeaderBar::new();
     header.add_css_class("fond-chrome");
-    let title_lbl = gtk4::Label::new(Some("Import History"));
+    let title_lbl = gtk4::Label::new(Some("Import history"));
     title_lbl.add_css_class("heading");
     header.set_title_widget(Some(&title_lbl));
 
     if log.records.is_empty() {
         let empty = adw::StatusPage::new();
         empty.set_icon_name(Some("document-open-recent-symbolic"));
-        empty.set_title("No Imports Yet");
+        empty.set_title("No imports yet");
         empty.set_description(Some("Documents you import will be listed here."));
         empty.set_vexpand(true);
         let toolbar_view = adw::ToolbarView::new();
@@ -1644,7 +1644,7 @@ fn run_pandoc_import_confirmed(
 /// parallel — avoids launching many concurrent pandoc processes). Unlike the
 /// single-file flow, batch import skips the per-file preview dialog; the
 /// dialog says so up front.
-/// "Paste as Document": reads plain text off the clipboard (not rich HTML —
+/// "Paste as document": reads plain text off the clipboard (not rich HTML —
 /// that would need mime-type negotiation via `read_value_async`, out of scope
 /// here) and runs it through the same markdown pandoc path as a file import,
 /// via stdin instead of a saved file.
@@ -1691,7 +1691,7 @@ fn prompt_paste_filename(
 ) {
     let has_open_doc = editor.get_active_path().is_some();
 
-    let dlg = adw::MessageDialog::new(Some(window), Some("Paste as Document"), None);
+    let dlg = adw::MessageDialog::new(Some(window), Some("Paste as document"), None);
     dlg.add_response("cancel", "Cancel");
     dlg.add_response("ok", "Import");
     dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
@@ -1792,7 +1792,7 @@ fn run_paste_import(
         editor.insert_at_cursor(&body);
         log.record(
             source_label,
-            "Paste as Document",
+            "Paste as document",
             None,
             true,
             "Inserted at cursor",
@@ -1806,13 +1806,13 @@ fn run_paste_import(
     if let Err(e) = std::fs::write(&out_path, &processed) {
         let description = format!("Couldn't write the new document:\n{e}");
         show_alert(window, "Couldn't bring that file in", &description);
-        log.record(source_label, "Paste as Document", None, false, &description);
+        log.record(source_label, "Paste as document", None, false, &description);
         return;
     }
     editor.open_file(out_path.clone(), &processed);
     log.record(
         source_label,
-        "Paste as Document",
+        "Paste as document",
         Some(out_path),
         true,
         "Imported successfully",
@@ -1827,14 +1827,14 @@ pub(super) fn import_folder_via_pandoc(
     toast_overlay: &adw::ToastOverlay,
 ) {
     let dlg = adw::Window::new();
-    dlg.set_title(Some("Import Folder"));
+    dlg.set_title(Some("Import folder"));
     dlg.set_default_width(340);
     dlg.set_modal(true);
     dlg.set_transient_for(Some(window));
 
     let header = adw::HeaderBar::new();
     header.add_css_class("fond-chrome");
-    let title_lbl = gtk4::Label::new(Some("Import Folder"));
+    let title_lbl = gtk4::Label::new(Some("Import folder"));
     title_lbl.add_css_class("heading");
     header.set_title_widget(Some(&title_lbl));
 
@@ -1894,7 +1894,7 @@ pub(super) fn import_folder_via_pandoc(
         });
     }
 
-    let import_btn = Button::with_label("Import Folder");
+    let import_btn = Button::with_label("Import folder");
     import_btn.add_css_class("suggested-action");
     import_btn.set_margin_start(12);
     import_btn.set_margin_end(12);

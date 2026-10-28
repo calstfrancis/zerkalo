@@ -455,7 +455,7 @@ impl ErrorPanel {
         chevron_btn.add_css_class("flat");
         chevron_btn.add_css_class("circular");
         chevron_btn.set_tooltip_text(Some("Collapse list"));
-        chevron_btn.update_property(&[gtk4::accessible::Property::Label("Toggle list")]);
+        chevron_btn.update_property(&[gtk4::accessible::Property::Label("Problem list")]);
         header.append(&chevron_btn);
 
         inner.append(&header);
@@ -1216,8 +1216,10 @@ impl ErrorPanel {
         self.sync_build_log();
         // Show last-clean timestamp only when recovering from real errors
         if had_errors {
-            self.last_clean_label
-                .set_text(&format!("Last clean compile: {}", current_time_hhmm()));
+            self.last_clean_label.set_text(&format!(
+                "Last worked without problems at {}",
+                current_time_hhmm()
+            ));
             self.last_clean_label.set_visible(true);
         }
     }

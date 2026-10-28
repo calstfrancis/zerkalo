@@ -17,7 +17,7 @@ pub struct SearchPanel {
     results: ListBox,
     work_dir: Rc<RefCell<PathBuf>>,
     on_result: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
-    /// The open documents' current text. Replace All changes those in the
+    /// The open documents' current text. Replace all changes those in the
     /// editor (one undo step each, unsaved typing kept) instead of on disk.
     open_documents: Rc<RefCell<Option<Box<dyn Fn() -> Vec<(PathBuf, String)>>>>>,
     on_replace_open: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>>,
@@ -43,7 +43,7 @@ impl SearchPanel {
 
         let replace_toggle = ToggleButton::new();
         replace_toggle.set_icon_name("edit-find-replace-symbolic");
-        replace_toggle.set_tooltip_text(Some("Toggle replace mode"));
+        replace_toggle.set_tooltip_text(Some("Show or hide the replace box"));
         replace_toggle.add_css_class("flat");
 
         let entry = Entry::new();
@@ -89,7 +89,7 @@ impl SearchPanel {
         replace_entry.set_placeholder_text(Some("Replace with…"));
         replace_entry.set_hexpand(true);
 
-        let replace_all_btn = Button::with_label("Replace All");
+        let replace_all_btn = Button::with_label("Replace all");
         replace_all_btn.add_css_class("destructive-action");
 
         replace_bar.append(&replace_entry);
@@ -154,7 +154,7 @@ impl SearchPanel {
         let w = panel.widget.clone();
         close_btn.connect_clicked(move |_| w.set_visible(false));
 
-        // Replace All
+        // Replace all
         let p_rep = panel.clone();
         replace_all_btn.connect_clicked(move |_| {
             let query = p_rep.entry.text().to_string();

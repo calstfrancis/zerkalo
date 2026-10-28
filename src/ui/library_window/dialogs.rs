@@ -102,7 +102,7 @@ impl LibraryWindow {
     }
 
     /// Asks for a name and makes a label of it. No colour is asked for — it
-    /// gets one from the palette, and Change Color… is there if it matters.
+    /// gets one from the palette, and Change colour… is there if it matters.
     pub(super) fn create_label_dialog(&self) {
         let dlg = adw::MessageDialog::new(Some(&self.window), Some("New Label"), None);
         dlg.add_response("cancel", "Cancel");

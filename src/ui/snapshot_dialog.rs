@@ -99,7 +99,7 @@ impl SnapshotDialog {
         current_content: &str,
     ) -> Self {
         let window = adw::Window::builder()
-            .title("Saved Versions")
+            .title("Saved versions")
             .transient_for(parent)
             .modal(true)
             .default_width(800)
@@ -121,7 +121,7 @@ impl SnapshotDialog {
         let left = GtkBox::new(Orientation::Vertical, 0);
         left.set_width_request(220);
 
-        let list_header = Label::new(Some("Snapshots"));
+        let list_header = Label::new(Some("Saved versions"));
         list_header.add_css_class("heading");
         list_header.set_margin_start(12);
         list_header.set_margin_top(8);
@@ -177,7 +177,7 @@ impl SnapshotDialog {
         restore_bar.set_margin_end(12);
         restore_bar.set_margin_top(8);
         restore_bar.set_margin_bottom(8);
-        let restore_info = Label::new(Some("Select a snapshot to see changes"));
+        let restore_info = Label::new(Some("Choose a saved version to see what changed"));
         restore_info.add_css_class("dim-label");
         restore_info.set_hexpand(true);
         restore_info.set_xalign(0.0);
@@ -257,7 +257,7 @@ impl SnapshotDialog {
                 *sel.borrow_mut() = Some(snap_text.clone());
                 restore_btn_c.set_sensitive(true);
                 let wc = snap_text.split_whitespace().count();
-                info_c.set_text(&format!("{wc} words in this snapshot"));
+                info_c.set_text(&format!("{wc} words in this version"));
             });
         }
 

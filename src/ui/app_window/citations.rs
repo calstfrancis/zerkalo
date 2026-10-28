@@ -131,7 +131,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
         let manager = ctx.bib_manager.clone();
         ctx.citation_panel.set_on_choose_vault(move || {
             let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Choose Kartoteka Vault Folder");
+            dialog.set_title("Choose Kartoteka vault folder");
             let manager = manager.clone();
             dialog.select_folder(
                 Some(&win_for_vault),
@@ -285,7 +285,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
         let cfg_for_cv = ctx.current_config.clone();
         ctx.citation_panel.set_on_choose_cv(move || {
             let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Choose Skrizhal CV Element File");
+            dialog.set_title("Choose Skrizhal CV element file");
             let filter = gtk4::FileFilter::new();
             filter.set_name(Some("YAML files (*.yaml, *.yml)"));
             filter.add_pattern("*.yaml");
@@ -442,7 +442,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
 
 fn choose_file_dialog(win: &adw::ApplicationWindow, manager: &BibManager) {
     let dialog = gtk4::FileDialog::new();
-    dialog.set_title("Choose Bibliography File");
+    dialog.set_title("Choose bibliography file");
     let filter = gtk4::FileFilter::new();
     filter.set_name(Some("Bibliography files (*.bib, *.yaml, *.yml)"));
     filter.add_pattern("*.bib");
@@ -469,7 +469,7 @@ fn info_dialog(win: &adw::ApplicationWindow, title: &str, body: &str) {
 /// bibliography exactly as if an existing one had been picked.
 fn open_create_bib_dialog(win: &adw::ApplicationWindow, manager: &BibManager) {
     let dialog = gtk4::FileDialog::new();
-    dialog.set_title("Create Bibliography File");
+    dialog.set_title("Create bibliography file");
     dialog.set_initial_name(Some("references.bib"));
     let manager = manager.clone();
     dialog.save(Some(win), None::<&gtk4::gio::Cancellable>, move |result| {

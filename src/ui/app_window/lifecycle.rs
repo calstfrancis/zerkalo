@@ -28,7 +28,7 @@ pub(super) struct LifecycleCtx {
     pub(super) auto_save_idle_ms: Rc<RefCell<u64>>,
     pub(super) sync_btn: gtk4::Button,
     pub(super) sync_badge: gtk4::Label,
-    /// "New from Template…" menu button — the welcome window's "Get Started"
+    /// "New from template…" menu button — the welcome window's "Get Started"
     /// fires this directly rather than just closing, so a first-time user
     /// lands in document creation instead of a blank window.
     pub(super) menu_new_template_item: gtk4::Button,
@@ -335,7 +335,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     // the Sync button themselves ─────────────────────────────────────────
     //
     // Only runs once a backup location is configured (the setup wizard or
-    // ☰ → Backup Locations…), and only when there's something uncommitted —
+    // ☰ → Backup locations…), and only when there's something uncommitted —
     // otherwise it's a no-op check every 30s, not a sync. Quiet: failures
     // show a toast, never a blocking dialog, so an offline user isn't
     // interrupted while writing.

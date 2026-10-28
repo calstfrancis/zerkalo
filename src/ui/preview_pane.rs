@@ -205,7 +205,7 @@ impl PreviewPane {
         spin_box.set_valign(Align::Center);
         let spinner = Spinner::new();
         spinner.set_size_request(48, 48);
-        let spin_lbl = Label::new(Some("Compiling\u{2026}"));
+        let spin_lbl = Label::new(Some("Updating the preview\u{2026}"));
         spin_lbl.add_css_class("dim-label");
         let spin_lbl_store = spin_lbl.clone();
         let cancel_btn = Button::with_label("Cancel");
@@ -1295,7 +1295,7 @@ impl PreviewPane {
         if self.page_pixbufs.borrow().is_empty() {
             self.stack.set_visible_child_name("compiling");
         }
-        self.spin_lbl.set_text("Compiling\u{2026}");
+        self.spin_lbl.set_text("Updating the preview\u{2026}");
         *self.compile_start_instant.borrow_mut() = Some(Instant::now());
         {
             let lbl = self.spin_lbl.clone();
@@ -1308,7 +1308,7 @@ impl PreviewPane {
                 }
                 if let Some(t) = *start_rc.borrow() {
                     let secs = t.elapsed().as_secs();
-                    lbl.set_text(&format!("Compiling\u{2026} {secs}s"));
+                    lbl.set_text(&format!("Updating the preview\u{2026} {secs} s"));
                 }
                 glib::ControlFlow::Continue
             });

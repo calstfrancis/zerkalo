@@ -74,7 +74,7 @@ impl LibraryWindow {
             vec![]
         };
 
-        let dlg = adw::MessageDialog::new(Some(&self.window), Some("New Document"), None);
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("New document"), None);
         dlg.add_response("cancel", "Cancel");
         dlg.add_response("blank", "Blank Document");
         dlg.set_response_appearance("blank", adw::ResponseAppearance::Suggested);
@@ -139,7 +139,7 @@ impl LibraryWindow {
         crate::ui::name_prompt::ask_document_name(
             &self.window,
             &self.work_dir,
-            "New Document",
+            "New document",
             "Create",
             &suggested,
             move |path| {
@@ -158,7 +158,7 @@ impl LibraryWindow {
 
     pub(super) fn import_document(&self) {
         let dialog = gtk4::FileDialog::new();
-        dialog.set_title("Import Typst Document");
+        dialog.set_title("Import Typst document");
         let filter = gtk4::FileFilter::new();
         filter.add_pattern("*.typ");
         filter.set_name(Some("Typst files"));

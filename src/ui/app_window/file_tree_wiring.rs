@@ -195,8 +195,7 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
         proj_toggle.add_css_class("flat");
         proj_toggle.add_css_class("status-toggle");
         proj_toggle.set_tooltip_text(Some("Show or hide the main-document controls"));
-        proj_toggle
-            .update_property(&[gtk4::accessible::Property::Label("Toggle project controls")]);
+        proj_toggle.update_property(&[gtk4::accessible::Property::Label("Project controls")]);
         proj_toggle.set_active(false);
 
         let proj_btn_label = Label::new(Some("project"));
@@ -320,7 +319,7 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
             let clr = clear_root_btn_rc.clone();
             set_root_btn.connect_clicked(move |_| {
                 let dialog = gtk4::FileDialog::new();
-                dialog.set_title("Set Root File");
+                dialog.set_title("Set root file");
                 let filter = gtk4::FileFilter::new();
                 filter.set_name(Some("Typst files (*.typ)"));
                 filter.add_pattern("*.typ");

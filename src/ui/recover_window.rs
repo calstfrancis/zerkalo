@@ -523,7 +523,7 @@ fn versions_page(
                 crate::ui::snapshot_dialog::save_snapshot(&root, &file, &current);
                 (actions.replace_active_text)(text.clone());
                 toasts.say(adw::Toast::new(
-                    "Replaced. Your previous text is kept in Saved Versions, and Ctrl+Z undoes it.",
+                    "Replaced. Your previous text is kept in Saved versions, and Ctrl+Z undoes it.",
                 ));
                 btn.set_sensitive(false);
             });

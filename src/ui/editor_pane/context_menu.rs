@@ -384,7 +384,7 @@ impl EditorPane {
 
                 vbox.append(&Separator::new(Orientation::Horizontal));
 
-                let ignore_btn = Button::with_label("Ignore All");
+                let ignore_btn = Button::with_label("Ignore all");
                 ignore_btn.add_css_class("flat");
                 let spell_ign = spell_rc.clone();
                 let buf_ign = buf_rc.clone();
@@ -400,7 +400,7 @@ impl EditorPane {
                 });
                 vbox.append(&ignore_btn);
 
-                let add_dict_btn = Button::with_label("Add to Dictionary");
+                let add_dict_btn = Button::with_label("Add to dictionary");
                 add_dict_btn.add_css_class("flat");
                 let spell_dict = spell_rc.clone();
                 let buf_dict = buf_rc.clone();
@@ -417,7 +417,7 @@ impl EditorPane {
                 vbox.append(&add_dict_btn);
 
                 if spell_rc.borrow().has_project_dict() {
-                    let add_proj_btn = Button::with_label("Add to Project Dictionary");
+                    let add_proj_btn = Button::with_label("Add to project dictionary");
                     add_proj_btn.add_css_class("flat");
                     let spell_proj = spell_rc.clone();
                     let buf_proj = buf_rc.clone();

@@ -517,7 +517,6 @@ impl AppWindow {
             btn.set_child(Some(&compile_mode_label));
             btn.add_css_class("flat");
             btn.add_css_class("status-toggle");
-            btn.set_tooltip_text(Some("Toggle compile mode: auto compile / manual compile"));
             apply_compile_mode_css(&btn, config.auto_compile);
 
             // Beside the compile buttons in the header — it says what those
@@ -781,9 +780,9 @@ impl AppWindow {
             folder_group.set_margin_start(12);
             folder_group.set_margin_end(12);
             folder_group.set_margin_top(4);
-            let folder_row = make_row("folder-symbolic", "Import Folder…");
+            let folder_row = make_row("folder-symbolic", "Import folder…");
             folder_group.add(&folder_row);
-            let paste_row = make_row("edit-paste-symbolic", "Paste as Document…");
+            let paste_row = make_row("edit-paste-symbolic", "Paste as document…");
             folder_group.add(&paste_row);
             row_box.append(&folder_group);
             {
@@ -815,8 +814,8 @@ impl AppWindow {
             // past import attempts.
             let history_btn = Button::from_icon_name("document-open-recent-symbolic");
             history_btn.add_css_class("flat");
-            history_btn.set_tooltip_text(Some("Import History"));
-            history_btn.update_property(&[gtk4::accessible::Property::Label("Import History")]);
+            history_btn.set_tooltip_text(Some("Import history"));
+            history_btn.update_property(&[gtk4::accessible::Property::Label("Import history")]);
             header_dlg.pack_end(&history_btn);
             {
                 let win_c = window_for_import.clone();
@@ -1662,10 +1661,10 @@ impl AppWindow {
 
         let ref_toggle_btn = ToggleButton::with_label("Help");
         ref_toggle_btn.add_css_class("flat");
-        ref_toggle_btn.set_tooltip_text(Some("Toggle Cheatsheet & Help"));
-        ref_toggle_btn.update_property(&[gtk4::accessible::Property::Label(
-            "Toggle cheatsheet and help panel",
-        )]);
+        ref_toggle_btn.set_tooltip_text(Some(
+            "Show or hide the cheatsheet and help beside the preview",
+        ));
+        ref_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Cheatsheet and help")]);
 
         // Page navigation
         let page_prev_btn = Button::from_icon_name("go-previous-symbolic");
@@ -1685,7 +1684,7 @@ impl AppWindow {
         let compile_time_label = Label::new(None);
         compile_time_label.add_css_class("caption");
         compile_time_label.add_css_class("dim-label");
-        compile_time_label.set_tooltip_text(Some("Last compile time"));
+        compile_time_label.set_tooltip_text(Some("How long the last preview update took"));
 
         let preview_toolbar = GtkBox::new(Orientation::Horizontal, 4);
         preview_toolbar.set_margin_start(8);
@@ -1779,7 +1778,7 @@ impl AppWindow {
                     ));
                 } else {
                     lbl.remove_css_class("warning");
-                    lbl.set_tooltip_text(Some("Last compile time"));
+                    lbl.set_tooltip_text(Some("How long the last preview update took"));
                 }
             });
         }
@@ -1869,7 +1868,7 @@ impl AppWindow {
             editor_pane.set_on_show_in_preview(move |path, offset| {
                 if !preview_for_show.show_source(&path, offset) {
                     let t = adw::Toast::new(
-                        "That spot isn't in the preview — compile first, or pick text that appears on the page",
+                        "That spot isn't in the preview — update the preview first, or pick text that appears on the page",
                     );
                     t.set_timeout(3);
                     toast_for_show.say(t);
@@ -1990,8 +1989,10 @@ impl AppWindow {
                 .map(|c| c.root_controls_dismissed)
                 .unwrap_or(false);
             if no_root_configured && main_path.exists() && !dismissed {
-                let banner = adw::Banner::new("main.typ detected — set it as root?");
-                banner.set_button_label(Some("Set as Root"));
+                let banner = adw::Banner::new(
+                    "This folder has a main.typ — use it as the main document for the preview?",
+                );
+                banner.set_button_label(Some("Use main.typ"));
                 banner.set_revealed(false); // revealed by project toggle
                 let preview_for_banner = preview_pane.clone();
                 let root_ref_banner = configured_root.clone();
@@ -2127,8 +2128,9 @@ impl AppWindow {
 
             let recompile_btn = Button::from_icon_name("media-playback-start-symbolic");
             recompile_btn.add_css_class("flat");
-            recompile_btn.set_tooltip_text(Some("Recompile"));
-            recompile_btn.update_property(&[gtk4::accessible::Property::Label("Recompile")]);
+            recompile_btn.set_tooltip_text(Some("Update the preview"));
+            recompile_btn
+                .update_property(&[gtk4::accessible::Property::Label("Update the preview")]);
             let sec_clone = secondary.clone();
             recompile_btn.connect_clicked(move |_| sec_clone.trigger_compile());
 
@@ -2390,7 +2392,7 @@ impl AppWindow {
             });
         }
         {
-            // Replace All changes open documents in the editor, as one undo
+            // Replace all changes open documents in the editor, as one undo
             // step each, so unsaved typing and Ctrl+Z both survive it. Files
             // that aren't open are written on disk.
             let ep = editor_pane.clone();
@@ -2618,7 +2620,7 @@ impl AppWindow {
             let toast_for_tour = toast_overlay.clone();
             tour.set_on_finished(move || {
                 let t = adw::Toast::new(crate::keybindings::shown(
-                    "That's the tour — press {help_overlay} anytime to see what a button does, or replay it from Help & About.",
+                    "That's the tour — press {help_overlay} anytime to see what a button does, or replay it from Help & about.",
                 ));
                 t.set_timeout(8);
                 toast_for_tour.say(t);
@@ -3010,7 +3012,7 @@ impl AppWindow {
                     return glib::Propagation::Stop;
                 }
             }
-            // Ctrl+Shift+V — Paste as Document, which lives inside that same
+            // Ctrl+Shift+V — Paste as document, which lives inside that same
             // Import dialog.
             {
                 use gtk4::gdk::Key;
@@ -3517,13 +3519,22 @@ impl AppWindow {
 
 fn compile_mode_label_str(auto: bool) -> &'static str {
     if auto {
-        "auto compile"
+        "preview: by itself"
     } else {
-        "manual compile"
+        "preview: when I ask"
     }
 }
 
 fn apply_compile_mode_css(btn: &Button, auto: bool) {
+    btn.set_tooltip_text(Some(if auto {
+        "The preview updates by itself a moment after you stop typing. Click so it waits until \
+         you ask."
+    } else {
+        crate::keybindings::shown(
+            "The preview updates when you ask: Save, the ⟳ button or {compile}. Click so it \
+             updates by itself.",
+        )
+    }));
     if auto {
         btn.add_css_class("compile-mode-auto");
         btn.remove_css_class("compile-mode-manual");
@@ -3584,15 +3595,15 @@ fn show_dynamic_shortcuts_window(
         "Editing\n\
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
          Save                {save}\n\
-         Find & Replace      {find}\n\
+         Find & replace      {find}\n\
          Next tab            {next_tab}\n\
          Previous tab        {prev_tab}\n\
          Add reference       {add_ref}\n\n\
          Navigation\n\
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
-         Command Palette     {palette}\n\
+         Command palette     {palette}\n\
          Go to heading       Ctrl+G\n\
-         Find in Files       Ctrl+Shift+F\n\n\
+         Find in files       Ctrl+Shift+F\n\n\
          Compile & Preview\n\
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
          Compile             {compile}\n\
@@ -3601,7 +3612,7 @@ fn show_dynamic_shortcuts_window(
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
          Save a version      {git_sync}\n\
          What things do      {help_overlay}\n\
-         Keyboard Shortcuts  {shortcuts_help}\n\
+         Keyboard shortcuts  {shortcuts_help}\n\
          Quit                {quit}\n\n\
          Keybindings file: ~/.config/zerkalo/keybindings.toml",
         save = d(&kb.save),
@@ -3616,7 +3627,7 @@ fn show_dynamic_shortcuts_window(
         help_overlay = d(&kb.help_overlay),
         quit = d(&kb.quit),
     );
-    let dlg = adw::MessageDialog::new(Some(window), Some("Keyboard Shortcuts"), Some(&body));
+    let dlg = adw::MessageDialog::new(Some(window), Some("Keyboard shortcuts"), Some(&body));
     dlg.add_response("ok", "OK");
     dlg.present();
 }
@@ -3958,11 +3969,11 @@ fn build_hamburger_menu_items() -> HamburgerItems {
     let d = crate::keybindings::display_binding;
 
     HamburgerItems {
-        menu_new_template_item: make_menu_item("New from Template…", None),
-        menu_reapply_template_item: make_menu_item("Change Document Style…", None),
+        menu_new_template_item: make_menu_item("New from template…", None),
+        menu_reapply_template_item: make_menu_item("Change document style…", None),
         menu_repair_markers_item: {
-            let item = make_menu_item("Repair Document Template…", None);
-            // Filed in the "Document Tools" flyout alongside routine settings
+            let item = make_menu_item("Repair document template…", None);
+            // Filed in the "Document tools" flyout alongside routine settings
             // rows, but its own dialog frames itself as post-corruption
             // recovery ("A backup was saved as .typ.bak") — nothing else in
             // the menu signalled that distinction before this tooltip.
@@ -3972,29 +3983,29 @@ fn build_hamburger_menu_items() -> HamburgerItems {
             ));
             item
         },
-        menu_refs_item: make_menu_item("Citations & Bibliography…", None),
-        menu_depgraph_item: make_menu_item("Project File Map…", None),
-        menu_table_item: make_menu_item("Insert Table…", None),
-        menu_new_item: make_menu_item("New Blank Document…", None),
-        menu_open_item: make_menu_item("Open File…", None),
+        menu_refs_item: make_menu_item("Citations & bibliography…", None),
+        menu_depgraph_item: make_menu_item("Project file map…", None),
+        menu_table_item: make_menu_item("Insert table…", None),
+        menu_new_item: make_menu_item("New blank document…", None),
+        menu_open_item: make_menu_item("Open file…", None),
         menu_save_item: make_menu_item("Save", Some(&d(&kb.save))),
-        menu_save_as_item: make_menu_item("Save As…", None),
+        menu_save_as_item: make_menu_item("Save as…", None),
         menu_get_latest_item: {
-            let item = make_menu_item("Get Latest from GitHub", None);
+            let item = make_menu_item("Get latest from GitHub", None);
             item.set_tooltip_text(Some(
                 "Bring everything backed up online down to this computer — for picking up work you left on another one. Nothing is sent back.",
             ));
             item
         },
         menu_replace_with_online_item: {
-            let item = make_menu_item("Replace This Computer's Copy with GitHub's…", None);
+            let item = make_menu_item("Replace this computer's copy with GitHub's…", None);
             item.set_tooltip_text(Some(
                 "Make this computer match GitHub exactly. Anything here that isn't backed up online is kept in a saved copy first.",
             ));
             item
         },
-        menu_snapshots_item: make_menu_item("Saved Versions…", None),
-        menu_history_item: make_menu_item("Online Change History…", None),
+        menu_snapshots_item: make_menu_item("Saved versions…", None),
+        menu_history_item: make_menu_item("Online change history…", None),
         menu_recover_item: {
             let item = make_menu_item("Recover…", None);
             item.set_tooltip_text(Some(
@@ -4003,7 +4014,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
             item
         },
         menu_export_item: make_menu_item("Export…", None),
-        menu_export_web_item: make_menu_item("Export for Web…", None),
+        menu_export_web_item: make_menu_item("Export for web…", None),
         // Print and Import aren't in keybindings.toml — they're fixed in the
         // key handler, so a literal is the honest label here.
         menu_print_item: make_menu_item("Print\u{2026}", Some("Ctrl+P")),
@@ -4012,15 +4023,15 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_help_item: make_menu_item("Help", Some("Ctrl+?")),
         // The keybinding-aware shortcuts window was reachable only by its
         // shortcut; nothing in the menu opened it.
-        menu_shortcuts_item: make_menu_item("Keyboard Shortcuts", Some(&d(&kb.shortcuts_help))),
-        // Same story as Keyboard Shortcuts above: the F1 overlay existed
+        menu_shortcuts_item: make_menu_item("Keyboard shortcuts", Some(&d(&kb.shortcuts_help))),
+        // Same story as Keyboard shortcuts above: the F1 overlay existed
         // long before anything in the menu pointed at it.
-        menu_what_things_do_item: make_menu_item("What Things Do", Some(&d(&kb.help_overlay))),
-        menu_take_tour_item: make_menu_item("Take the Tour", None),
-        menu_writing_stats_item: make_menu_item("Your Writing", None),
+        menu_what_things_do_item: make_menu_item("What things do", Some(&d(&kb.help_overlay))),
+        menu_take_tour_item: make_menu_item("Take the tour", None),
+        menu_writing_stats_item: make_menu_item("Your writing", None),
         menu_about_item: make_menu_item("About Zerkalo", None),
-        menu_whats_new_item: make_menu_item("What's New", None),
-        menu_import_pdf_item: make_menu_item("Import PDF File…", None),
+        menu_whats_new_item: make_menu_item("What's new", None),
+        menu_import_pdf_item: make_menu_item("Import PDF file…", None),
     }
 }
 
@@ -4053,8 +4064,8 @@ fn make_menu_item(label: &str, shortcut: Option<&str>) -> Button {
 
 /// Build a hamburger-menu row that opens a nested flyout of related items on
 /// click, for clusters of rarely-used or narrowly-scoped actions that would
-/// otherwise clutter the top-level menu (e.g. "Export & Print" holding
-/// Export/Export for Web/Print). Styled to match `make_menu_item` — flush-left
+/// otherwise clutter the top-level menu (e.g. "Export & print" holding
+/// Export/Export for web/Print). Styled to match `make_menu_item` — flush-left
 /// label — with a trailing chevron instead of a shortcut. Reuses the passed-in
 /// buttons as-is, so click handlers and `set_sensitive` calls wired against
 /// them elsewhere keep working unchanged regardless of which popover they end
@@ -4115,14 +4126,14 @@ fn restore_snapshot_with_confirm(
 }
 
 /// Opens a small window showing `path`'s git commit history and diffs, for
-/// both the hamburger's "File History…" row and the Ctrl+K palette.
+/// both the hamburger's "File history…" row and the Ctrl+K palette.
 pub(super) fn show_file_history_window(
     parent: &adw::ApplicationWindow,
     project_root: &Path,
     path: &Path,
 ) {
     let history_window = adw::Window::builder()
-        .title("File History")
+        .title("File history")
         .transient_for(parent)
         .modal(true)
         .default_width(760)
@@ -4156,7 +4167,7 @@ pub(super) fn show_dep_graph_window(
     dep_graph: &super::dep_graph::DepGraph,
 ) {
     let graph_window = adw::Window::builder()
-        .title("Dependency Graph")
+        .title("Dependency graph")
         .transient_for(parent)
         .modal(true)
         .default_width(760)
@@ -4190,7 +4201,7 @@ pub(super) fn show_ref_manager_window(
     ref_manager: &super::ref_manager::RefManager,
 ) {
     let refs_window = adw::Window::builder()
-        .title("Reference Manager")
+        .title("Reference manager")
         .transient_for(parent)
         .modal(true)
         .default_width(560)
@@ -4216,7 +4227,7 @@ pub(super) fn show_ref_manager_window(
 }
 
 /// Opens the template dialog preloaded from the active document, for both the
-/// hamburger's "Change Document Style…" and the header's "Template" button.
+/// hamburger's "Change document style…" and the header's "Template" button.
 ///
 /// These were two ~110-line copies of the same preselection sequence, and had
 /// already drifted: the header copy hardcoded the advanced-expander state,
@@ -4235,7 +4246,7 @@ pub(super) fn open_template_for_active_document(
         show_alert(
             window,
             "No document open",
-            "Open a .typ file first, then use Change Document Style…",
+            "Open a .typ file first, then use Change document style…",
         );
         return;
     };
@@ -4447,7 +4458,7 @@ pub(super) fn open_template_for_active_document(
 /// The sidecar is only *updated*, never created here: an absent sidecar means
 /// the document itself is the record of its settings, and writing a fresh one
 /// from a single font pick would claim defaults for every setting it doesn't
-/// know, which "Change Document Style…" would then trust over the file.
+/// know, which "Change document style…" would then trust over the file.
 /// Returns whether the document actually changed, so the caller only relabels
 /// the format bar for an edit that landed.
 fn apply_doc_font_edit(
@@ -4463,7 +4474,7 @@ fn apply_doc_font_edit(
     let Some(updated) = edited else {
         toast_overlay.say(adw::Toast::new(
             "This document has no Zerkalo template block — nothing to change. \
-             Use Change Document Style… to give it one.",
+             Use Change document style… to give it one.",
         ));
         return false;
     };
@@ -4542,13 +4553,20 @@ fn apply_template_result(
                     Ok(b) => {
                         backup_note = b
                             .file_name()
-                            .map(|n| format!(" Backup saved as {}.", n.to_string_lossy()))
+                            .map(|n| {
+                                format!(
+                                    " A copy of the old version was kept as {}.",
+                                    n.to_string_lossy()
+                                )
+                            })
                             .unwrap_or_default();
                     }
                     Err(e) => {
                         tracing::error!("Failed to back up before template apply: {e}");
                         toast_overlay.say(adw::Toast::new(&format!(
-                            "Settings not applied — couldn't back up the document first: {e}"
+                            "Your document is unchanged. Zerkalo couldn't keep a copy of it \
+                             first, so the new style wasn't applied — {}.",
+                            crate::error::io_reason(&e)
                         )));
                         return;
                     }

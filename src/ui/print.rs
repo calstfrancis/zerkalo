@@ -169,7 +169,7 @@ pub fn prepare(
             Err(TryRecvError::Disconnected) => {
                 if !flag.get() {
                     on_ready(Err(
-                        "The compiler stopped unexpectedly while preparing to print.".into(),
+                        "Zerkalo stopped unexpectedly while preparing to print.".into(),
                     ));
                 }
                 glib::ControlFlow::Break

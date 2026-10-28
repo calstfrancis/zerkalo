@@ -50,7 +50,7 @@ pub(super) fn build_status_bar() -> StatusBar {
 
     // Lives in the hamburger menu — a whole-UI font switch is a setting you
     // change once, not something to keep a status-bar chip for.
-    let gost_label = Label::new(Some("GOST Type B font"));
+    let gost_label = Label::new(Some("GOST type B font"));
     gost_label.set_use_markup(true);
     gost_label.set_halign(gtk4::Align::Start);
     gost_label.set_hexpand(true);
@@ -65,7 +65,7 @@ pub(super) fn build_status_bar() -> StatusBar {
     let gost_btn = Button::new();
     gost_btn.set_child(Some(&gost_row));
     gost_btn.add_css_class("flat");
-    gost_btn.set_tooltip_text(Some("Toggle GOST type B engineering font for the whole UI"));
+    gost_btn.set_tooltip_text(super::toggle_tip("GOST type B font", false).as_deref());
 
     // Matches gost_label above and make_menu_item()'s rows: this button is
     // packed into the hamburger, not the status bar, so it drops the
@@ -83,8 +83,8 @@ pub(super) fn build_status_bar() -> StatusBar {
     let autocorrect_btn = Button::new();
     autocorrect_btn.set_child(Some(&autocorrect_row));
     autocorrect_btn.add_css_class("flat");
-    autocorrect_btn.set_tooltip_text(Some("Toggle autocorrect (fixes spelling as you type)"));
-    autocorrect_btn.update_property(&[gtk4::accessible::Property::Label("Toggle autocorrect")]);
+    autocorrect_btn.set_tooltip_text(super::toggle_tip("Autocorrect", false).as_deref());
+    autocorrect_btn.update_property(&[gtk4::accessible::Property::Label("Autocorrect")]);
 
     let search_label = Label::new(Some("search"));
     search_label.add_css_class("dim-label");
@@ -110,9 +110,9 @@ pub(super) fn build_status_bar() -> StatusBar {
     focus_toggle_btn.set_child(Some(&focus_label));
     focus_toggle_btn.add_css_class("flat");
     focus_toggle_btn.add_css_class("status-toggle");
-    focus_toggle_btn.set_tooltip_text(Some("Focus mode — hide sidebar and preview"));
+    focus_toggle_btn.set_tooltip_text(super::toggle_tip("focus", false).as_deref());
     focus_toggle_btn.set_margin_end(4);
-    focus_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle focus mode")]);
+    focus_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Focus mode")]);
 
     let autosave_label = Label::new(Some("autosave"));
     autosave_label.add_css_class("dim-label");
@@ -124,12 +124,9 @@ pub(super) fn build_status_bar() -> StatusBar {
     autosave_toggle_btn.set_child(Some(&autosave_label));
     autosave_toggle_btn.add_css_class("flat");
     autosave_toggle_btn.add_css_class("status-toggle");
-    autosave_toggle_btn.set_tooltip_text(Some(
-        "Autosave — save the document a few seconds after you stop typing, and \
-         whenever you switch away, compile, export or quit",
-    ));
+    autosave_toggle_btn.set_tooltip_text(super::toggle_tip("autosave", false).as_deref());
     autosave_toggle_btn.set_margin_end(4);
-    autosave_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle autosave")]);
+    autosave_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Autosave")]);
 
     let format_bar_label = Label::new(Some("format bar"));
     format_bar_label.add_css_class("dim-label");
@@ -143,10 +140,9 @@ pub(super) fn build_status_bar() -> StatusBar {
     format_bar_toggle_btn.set_child(Some(&format_bar_label));
     format_bar_toggle_btn.add_css_class("flat");
     format_bar_toggle_btn.add_css_class("status-toggle");
-    format_bar_toggle_btn.set_tooltip_text(Some("Toggle the formatting toolbar"));
+    format_bar_toggle_btn.set_tooltip_text(super::toggle_tip("format bar", true).as_deref());
     format_bar_toggle_btn.set_margin_end(4);
-    format_bar_toggle_btn
-        .update_property(&[gtk4::accessible::Property::Label("Toggle format bar")]);
+    format_bar_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Format bar")]);
 
     let sb_sep1 = gtk4::Separator::new(Orientation::Vertical);
     sb_sep1.add_css_class("statusbar-sep");
@@ -237,12 +233,7 @@ pub(super) fn build_status_bar() -> StatusBar {
     simple_mode_btn.set_child(Some(&simple_mode_label));
     simple_mode_btn.add_css_class("flat");
     simple_mode_btn.add_css_class("status-toggle");
-    simple_mode_btn.set_tooltip_text(Some(
-        "Show Template: reveals the Typst front-matter above the document body.\nEdit it via the Update Template button.",
-    ));
-    simple_mode_btn.update_property(&[gtk4::accessible::Property::Label(
-        "Toggle template visibility",
-    )]);
+    simple_mode_btn.update_property(&[gtk4::accessible::Property::Label("Template setup lines")]);
 
     let sep1 = gtk4::Separator::new(Orientation::Vertical);
     sep1.add_css_class("statusbar-sep");

@@ -118,7 +118,7 @@ impl ExportDialog {
 
         // ── Format checkboxes ─────────────────────────────────────────────────
         let prefs_group = adw::PreferencesGroup::new();
-        prefs_group.set_title("Export Formats");
+        prefs_group.set_title("Export formats");
         prefs_group.set_margin_start(16);
         prefs_group.set_margin_end(16);
         prefs_group.set_margin_top(16);
@@ -329,13 +329,13 @@ impl ExportDialog {
         btn_row.set_margin_top(4);
         btn_row.set_margin_bottom(16);
 
-        let install_btn = Button::with_label("Install Dependencies…");
+        let install_btn = Button::with_label("Install dependencies…");
         install_btn.add_css_class("flat");
         install_btn.set_tooltip_text(Some(
             "Open Tools to see what's missing and how to install it",
         ));
 
-        let folder_btn = Button::with_label("Show in Folder");
+        let folder_btn = Button::with_label("Show in folder");
         folder_btn.set_visible(false);
 
         let export_btn = Button::with_label("Export");
@@ -369,7 +369,7 @@ impl ExportDialog {
             let win = window.clone();
             choose_btn.connect_clicked(move |_| {
                 let fd = gtk4::FileDialog::new();
-                fd.set_title("Export To");
+                fd.set_title("Export to");
                 fd.set_initial_folder(Some(&gtk4::gio::File::for_path(&*dir.borrow())));
                 let dir = dir.clone();
                 let row = row.clone();

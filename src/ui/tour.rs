@@ -6,7 +6,7 @@
 //! time with Next/Back/Skip controls built into the bubble itself, instead of
 //! labelling every control at once. F1 is "look anything up when you want
 //! to"; the tour is "here's the handful of things worth knowing first,"
-//! shown once automatically and replayable from Help & About afterward.
+//! shown once automatically and replayable from Help & about afterward.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -155,7 +155,7 @@ impl Tour {
     }
 
     /// Starts from the first step. Safe to call again later (e.g. from a
-    /// "Take the Tour" menu row) — it replaces whatever steps were running.
+    /// "Take the tour" menu row) — it replaces whatever steps were running.
     pub fn start(self: &Rc<Self>, steps: Vec<TourStep>) {
         if steps.is_empty() {
             return;
@@ -328,7 +328,7 @@ impl Tour {
 }
 
 /// The main-window walkthrough, shown once on first run and replayable from
-/// Help & About → Take the Tour. Reuses the same widget references the F1
+/// Help & about → Take the tour. Reuses the same widget references the F1
 /// overlay annotates (`AnnotationTargets`) but as a short, ordered sequence
 /// with its own "first five minutes" copy rather than a full reference —
 /// the template step in particular spells out the one thing that actually
@@ -358,8 +358,8 @@ pub fn tour_steps(t: &AnnotationTargets) -> Vec<TourStep> {
         ),
         step(
             t.compile_mode_slot,
-            "Auto or manual",
-            crate::keybindings::shown("Auto redraws the preview as you type; Manual waits for you to ask (Save, the ⟳ button, or {compile}). Manual is the default — click to switch."),
+            "When the preview updates",
+            crate::keybindings::shown("“By itself” redraws the preview a moment after you pause; “when I ask” waits for you (Save, the ⟳ button, or {compile}). “When I ask” is the default — click to switch."),
         ),
         step(
             t.sync_btn,
@@ -369,7 +369,7 @@ pub fn tour_steps(t: &AnnotationTargets) -> Vec<TourStep> {
         step(
             t.menu_btn,
             "That's the essentials",
-            crate::keybindings::shown("Everything else — import, export, print, settings — lives in this menu. Forgot what a button does later? Press {help_overlay} anytime to label the whole window, or come back to Help & About → Take the Tour."),
+            crate::keybindings::shown("Everything else — import, export, print, settings — lives in this menu. Forgot what a button does later? Press {help_overlay} anytime to label the whole window, or come back to Help & about → Take the tour."),
         ),
     ]
 }

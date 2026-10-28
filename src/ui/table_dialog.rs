@@ -43,7 +43,7 @@ pub struct TableDialog {
 impl TableDialog {
     pub fn new(parent: &impl IsA<gtk4::Window>) -> Self {
         let window = adw::Window::builder()
-            .title("Insert Table")
+            .title("Insert table")
             .transient_for(parent)
             .modal(true)
             .default_width(640)
@@ -56,7 +56,7 @@ impl TableDialog {
         header.add_css_class("fond-chrome");
         let cancel_btn = Button::with_label("Cancel");
         header.pack_start(&cancel_btn);
-        let insert_btn = Button::with_label("Insert Table");
+        let insert_btn = Button::with_label("Insert table");
         insert_btn.add_css_class("suggested-action");
         header.pack_end(&insert_btn);
 

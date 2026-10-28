@@ -29,4 +29,25 @@ toast, tooltip and help page.
 9. **Raw technical text is for Details**, never the headline. Use
    `crate::friendly::reason` to put a plain sentence in front of it.
 
+10. **One name for one thing.** Use the words in the glossary below, everywhere
+    — labels, tooltips, Help, messages. A person who reads "sync" in one place
+    and "back up" in another reasonably wonders whether they are two things.
+11. **Real numbers, not "a few".** "3 seconds", "every 12 minutes".
+12. **Say the state and what a click does.** A switch's tooltip says whether it
+    is on and what clicking will do ("Focus mode is off. Click to hide the
+    sidebar and preview."), never just "Toggle focus mode".
+13. **Shortcuts come from `keybindings::shown`**, so a rebound key is never
+    named wrongly on screen.
+
+## Glossary
+
+| Say | Not |
+|---|---|
+| back up, the backup button, online backup | sync, Sync, Back Up button, push |
+| saved version(s) | snapshot(s), commit |
+| update the preview, preview by itself / when I ask | compile, recompile, auto/manual compile |
+| main document | root file, compilation root (Help may explain the term) |
+| template setup lines | front-matter, preamble |
+| Keep it as it is | Cancel (on a confirmation of something that matters) |
+
 `cargo test` enforces a few of these (see `friendly::tests::the_voice_guide_is_kept`).

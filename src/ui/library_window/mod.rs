@@ -73,7 +73,7 @@ pub struct LibraryWindow {
     toast_overlay: adw::ToastOverlay,
     on_open: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     /// Whether a path is currently open in the editor — used to refuse
-    /// "Move into Zerkalo Folder…" on a document with an open tab, since
+    /// "Move into Zerkalo folder…" on a document with an open tab, since
     /// nothing here retargets that tab's in-memory path.
     is_open: Rc<RefCell<Option<Box<dyn Fn(&Path) -> bool>>>>,
     work_dir: PathBuf,
@@ -192,7 +192,7 @@ impl LibraryWindow {
         // One bordered control in the header, the way the main window has one.
         // A filled suggested-action button next to a filled sort dropdown made
         // the top of the window the loudest thing in it.
-        let new_doc_btn = Button::with_label("New Document");
+        let new_doc_btn = Button::with_label("New document");
         new_doc_btn.add_css_class("fond-pill");
         new_doc_btn.set_valign(Align::Center);
         let import_btn = Button::with_label("Import…");
@@ -244,10 +244,10 @@ impl LibraryWindow {
         // message populate_doc_list picked — a bare "Nothing here yet"/"Try a
         // different search" with no button was a dead end, since "New
         // Document" already sits right above in the header.
-        let empty_new_doc_btn = Button::with_label("New Document");
+        let empty_new_doc_btn = Button::with_label("New document");
         empty_new_doc_btn.add_css_class("fond-pill");
         empty_new_doc_btn.set_halign(Align::Center);
-        let empty_clear_search_btn = Button::with_label("Clear Search");
+        let empty_clear_search_btn = Button::with_label("Clear search");
         empty_clear_search_btn.add_css_class("flat");
         empty_clear_search_btn.set_halign(Align::Center);
         empty_clear_search_btn.set_visible(false);
@@ -348,7 +348,7 @@ impl LibraryWindow {
         );
         help_overlay.annotate(
             &new_doc_btn,
-            "New Document",
+            "New document",
             "Starts a new document from a template.",
         );
         window.set_content(Some(help_overlay.widget()));

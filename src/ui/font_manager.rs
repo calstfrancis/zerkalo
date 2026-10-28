@@ -124,7 +124,7 @@ impl FontManager {
         scroll.set_min_content_height(480);
 
         // ── Buttons bar ─────────────────────────────────────────────────────
-        let enable_all_btn = Button::with_label("Enable All");
+        let enable_all_btn = Button::with_label("Enable all");
         enable_all_btn.add_css_class("flat");
         let prefs_for_all = prefs.clone();
         let fonts_for_all = fonts.clone();
@@ -137,7 +137,7 @@ impl FontManager {
             rebuild_for_all(&search_for_all.text());
         });
 
-        let disable_all_btn = Button::with_label("Disable All");
+        let disable_all_btn = Button::with_label("Disable all");
         disable_all_btn.add_css_class("flat");
         let prefs_for_none = prefs.clone();
         let fonts_for_none = fonts.clone();

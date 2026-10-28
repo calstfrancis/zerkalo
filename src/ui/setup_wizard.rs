@@ -53,7 +53,7 @@ impl SetupWizard {
         let work_dir = work_dir.to_path_buf();
 
         let window = adw::Window::builder()
-            .title("Set Up Zerkalo")
+            .title("Set up Zerkalo")
             .transient_for(parent)
             .modal(true)
             // Tall enough that the connect screen's alternatives are all above
@@ -195,7 +195,7 @@ fn quiet(label: &str) -> Button {
 
 fn welcome_page(window: &adw::Window, nav: &adw::NavigationView) -> adw::NavigationPage {
     let (page, content, buttons) = page_shell(
-        "Set Up Zerkalo",
+        "Set up Zerkalo",
         "welcome",
         "Keep your writing safe",
         "Zerkalo can save a copy of everything you write to a private place online, \

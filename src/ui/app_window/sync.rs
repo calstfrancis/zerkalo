@@ -114,7 +114,7 @@ pub(super) fn do_sync(
     });
 }
 
-/// "Get Latest from GitHub": brings everything backed up online down to this
+/// "Get latest from GitHub": brings everything backed up online down to this
 /// computer, sending nothing back — for sitting down at another machine and
 /// picking up work in progress. Edits made here and not yet backed up are
 /// saved as a version first, so nothing is lost.
@@ -682,7 +682,7 @@ fn show_github_token_dialog(
     message: &str,
 ) {
     let dialog = adw::Window::builder()
-        .title("GitHub Login")
+        .title("GitHub sign-in")
         .transient_for(window)
         .modal(true)
         .default_width(480)
@@ -716,7 +716,7 @@ fn show_github_token_dialog(
     hint.set_margin_bottom(16);
     hint.set_xalign(0.0);
 
-    let save_btn = Button::with_label("Save & Sync");
+    let save_btn = Button::with_label("Save & back up");
     save_btn.add_css_class("suggested-action");
     save_btn.set_margin_start(16);
     save_btn.set_margin_end(16);
@@ -793,7 +793,7 @@ pub(super) fn show_backup_remote_dialog(
     repo_path: &std::path::Path,
 ) {
     let dialog = adw::Window::builder()
-        .title("Backup Locations")
+        .title("Backup locations")
         .transient_for(window)
         .modal(true)
         .default_width(520)
@@ -811,7 +811,7 @@ pub(super) fn show_backup_remote_dialog(
 
     // ── Primary remote (origin / GitHub) ─────────────────────────────────────
     let origin_group = adw::PreferencesGroup::new();
-    origin_group.set_title("Main Backup");
+    origin_group.set_title("Main backup");
     origin_group.set_description(Some(
         "Every save goes here first. Paste its GitHub address.",
     ));
@@ -872,7 +872,7 @@ pub(super) fn show_backup_remote_dialog(
 
     // ── Additional remotes ────────────────────────────────────────────────────
     let current_group = adw::PreferencesGroup::new();
-    current_group.set_title("Other Backup Locations");
+    current_group.set_title("Other backup locations");
 
     let root_for_rebuild = repo_path.to_path_buf();
     // Track only the rows we explicitly added so we can safely remove them
@@ -948,7 +948,7 @@ pub(super) fn show_backup_remote_dialog(
 
     // ── Add a new backup remote ───────────────────────────────────────────────
     let add_group = adw::PreferencesGroup::new();
-    add_group.set_title("Add Another Backup Location");
+    add_group.set_title("Add another backup location");
     add_group.set_description(Some(
         "Saves also go here, in addition to the main backup. Give it a name and an address or folder.",
     ));
@@ -1093,7 +1093,7 @@ pub(super) fn show_backup_remote_dialog(
 
     // ── Examples ─────────────────────────────────────────────────────────────
     let hint_group = adw::PreferencesGroup::new();
-    hint_group.set_title("Other URL Examples");
+    hint_group.set_title("Other URL examples");
     for (name, hint) in [
         (
             "Local / NAS",

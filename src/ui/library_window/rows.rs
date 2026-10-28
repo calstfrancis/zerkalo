@@ -252,7 +252,7 @@ impl LibraryWindow {
             badge.add_css_class("warning");
             badge.set_tooltip_text(Some(
                 "Zerkalo can't find this file — it may have been moved or deleted. \
-                 Open the ⋯ menu and choose Locate File… to point it at the new place.",
+                 Open the ⋯ menu and choose Locate file… to point it at the new place.",
             ));
             hbox.append(&badge);
         }
@@ -603,7 +603,7 @@ impl LibraryWindow {
             if !path.exists() {
                 let toast = adw::Toast::new(
                     "Can't find this file — it may have been moved or deleted. \
-                     Use ⋯ › Locate File… to point Zerkalo at it.",
+                     Use ⋯ › Locate file… to point Zerkalo at it.",
                 );
                 toast.set_use_markup(false);
                 self.toast_overlay.say(toast);

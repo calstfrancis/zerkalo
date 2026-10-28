@@ -154,7 +154,7 @@ impl RefManager {
                     p.used_keys.borrow().iter().cloned().collect();
 
                 let dialog = gtk4::FileDialog::new();
-                dialog.set_title("Export Cited-Only Bibliography (.bib or .yaml)");
+                dialog.set_title("Export cited-only bibliography (.bib or .yaml)");
                 dialog.set_initial_name(Some("cited.bib"));
                 let root_c = root.clone();
                 dialog.save(
@@ -573,7 +573,7 @@ const ENTRY_TYPES: &[(&str, &str)] = &[
 
 fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
     let dialog = adw::Window::builder()
-        .title("New Bibliography Entry")
+        .title("New bibliography entry")
         .default_width(440)
         .default_height(500)
         .modal(true)
@@ -619,7 +619,7 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
     let year_row = adw::EntryRow::new();
     year_row.set_title("Year");
     let venue_row = adw::EntryRow::new();
-    venue_row.set_title("Journal / Publisher");
+    venue_row.set_title("Journal / publisher");
     meta_group.add(&author_row);
     meta_group.add(&title_row);
     meta_group.add(&year_row);
@@ -675,7 +675,7 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
         for (label, field) in [
             ("Author(s)", author_row.text()),
             ("Title", title_row.text()),
-            ("Journal / Publisher", venue_row.text()),
+            ("Journal / publisher", venue_row.text()),
         ] {
             if !braces_balanced(field.as_str()) {
                 show(&format!(

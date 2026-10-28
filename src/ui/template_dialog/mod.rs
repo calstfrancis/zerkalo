@@ -554,7 +554,7 @@ pub(crate) struct TemplateSettings {
 }
 
 /// Canonical settings persisted as `<stem>.zerkalo.toml` alongside each `.typ` file.
-/// This is the single source of truth for "Update Template Settings" pre-fill.
+/// This is the single source of truth for "Update template Settings" pre-fill.
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct SidecarSettings {
     pub title: String,
@@ -743,11 +743,11 @@ fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
     meta_group.add(&affil_row);
 
     let course_row = adw::EntryRow::new();
-    course_row.set_title("Course / Context");
+    course_row.set_title("Course / context");
     meta_group.add(&course_row);
 
     let professor_row = adw::EntryRow::new();
-    professor_row.set_title("Professor / Instructor");
+    professor_row.set_title("Professor / instructor");
     meta_group.add(&professor_row);
 
     let date_row = adw::EntryRow::new();
@@ -756,7 +756,7 @@ fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
     meta_group.add(&date_row);
 
     let style_group = adw::PreferencesGroup::new();
-    style_group.set_title(&glib::markup_escape_text("Citation & Heading Style"));
+    style_group.set_title(&glib::markup_escape_text("Citation & heading style"));
     style_group.set_description(Some(
         "The same presets as the header's Style button, applied together with the \
          document settings below when you click Apply.",
@@ -836,19 +836,19 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
     let paper_labels: Vec<&str> = PAPER_SIZES.iter().map(|(n, _)| *n).collect();
     let paper_model = gtk4::StringList::new(&paper_labels);
     let paper_row = adw::ComboRow::new();
-    paper_row.set_title("Paper Size");
+    paper_row.set_title("Paper size");
     paper_row.set_model(Some(&paper_model));
     paper_row.set_selected(0);
     page_group.add(&paper_row);
 
     let custom_paper_w_row = adw::SpinRow::with_range(50.0, 1200.0, 1.0);
-    custom_paper_w_row.set_title("Custom Width (mm)");
+    custom_paper_w_row.set_title("Custom width (mm)");
     custom_paper_w_row.set_value(210.0);
     custom_paper_w_row.set_visible(false);
     page_group.add(&custom_paper_w_row);
 
     let custom_paper_h_row = adw::SpinRow::with_range(50.0, 1200.0, 1.0);
-    custom_paper_h_row.set_title("Custom Height (mm)");
+    custom_paper_h_row.set_title("Custom height (mm)");
     custom_paper_h_row.set_value(297.0);
     custom_paper_h_row.set_visible(false);
     page_group.add(&custom_paper_h_row);
@@ -871,7 +871,7 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
     page_group.add(&margin_row);
 
     let custom_margin_row = adw::SpinRow::with_range(0.1, 5.0, 0.05);
-    custom_margin_row.set_title("Custom Margin (in, all sides)");
+    custom_margin_row.set_title("Custom margin (in, all sides)");
     custom_margin_row.set_digits(2);
     custom_margin_row.set_value(1.0);
     custom_margin_row.set_visible(false);
@@ -885,14 +885,14 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
 
     let pnum_model = gtk4::StringList::new(PAGE_NUM_OPTIONS);
     let pnum_row = adw::ComboRow::new();
-    pnum_row.set_title("Page Numbers");
+    pnum_row.set_title("Page numbers");
     pnum_row.set_model(Some(&pnum_model));
     pnum_row.set_selected(0);
     page_group.add(&pnum_row);
 
     let header_model = gtk4::StringList::new(HEADER_OPTIONS);
     let header_row = adw::ComboRow::new();
-    header_row.set_title("Running Header");
+    header_row.set_title("Running header");
     header_row.set_model(Some(&header_model));
     header_row.set_selected(0);
     page_group.add(&header_row);
@@ -904,7 +904,7 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
     let font_labels: Vec<&str> = available_fonts.iter().map(|s| s.as_str()).collect();
     let font_model = gtk4::StringList::new(&font_labels);
     let font_row = adw::ComboRow::new();
-    font_row.set_title("Body Font");
+    font_row.set_title("Body font");
     font_row.set_model(Some(&font_model));
     // Onboarding's default serif/sans fonts (Setup & Onboarding -> Default
     // Fonts) take priority; "Times New Roman" is the fallback for anyone
@@ -920,7 +920,7 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
     typo_group.add(&font_row);
 
     let custom_font_row = adw::EntryRow::new();
-    custom_font_row.set_title("Custom Font Name");
+    custom_font_row.set_title("Custom font name");
     custom_font_row.set_visible(false);
     typo_group.add(&custom_font_row);
 
@@ -932,13 +932,13 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
 
     let font_size_model = gtk4::StringList::new(&["10 pt", "11 pt", "12 pt", "14 pt", "Custom…"]);
     let font_size_row = adw::ComboRow::new();
-    font_size_row.set_title("Font Size");
+    font_size_row.set_title("Font size");
     font_size_row.set_model(Some(&font_size_model));
     font_size_row.set_selected(2); // 12pt default
     typo_group.add(&font_size_row);
 
     let custom_font_size_row = adw::SpinRow::with_range(6.0, 72.0, 1.0);
-    custom_font_size_row.set_title("Custom Size (pt)");
+    custom_font_size_row.set_title("Custom size (pt)");
     custom_font_size_row.set_value(12.0);
     custom_font_size_row.set_visible(false);
     typo_group.add(&custom_font_size_row);
@@ -952,7 +952,7 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
     let spacing_labels: Vec<&str> = SPACING_OPTIONS.iter().map(|(n, _)| *n).collect();
     let spacing_model = gtk4::StringList::new(&spacing_labels);
     let spacing_row = adw::ComboRow::new();
-    spacing_row.set_title("Line Spacing");
+    spacing_row.set_title("Line spacing");
     spacing_row.set_model(Some(&spacing_model));
     spacing_row.set_selected(1);
     typo_group.add(&spacing_row);
@@ -1001,10 +1001,10 @@ struct SectionsTab {
 fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     // ── Tab 3: Sections ──────────────────────────────────────────────────
     let sec_group = adw::PreferencesGroup::new();
-    sec_group.set_title("Document Sections");
+    sec_group.set_title("Document sections");
 
     let title_page_row = adw::SwitchRow::new();
-    title_page_row.set_title("Title Page");
+    title_page_row.set_title("Title page");
     title_page_row.set_subtitle("Letters use a letterhead instead, regardless of this toggle");
     title_page_row.set_active(true);
     sec_group.add(&title_page_row);
@@ -1017,13 +1017,13 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     sec_group.add(&bibliography_row);
 
     let toc_row = adw::SwitchRow::new();
-    toc_row.set_title("Table of Contents");
+    toc_row.set_title("Table of contents");
     toc_row.set_active(false);
     sec_group.add(&toc_row);
 
     let toc_depth_labels = gtk4::StringList::new(&["1 level", "2 levels", "3 levels"]);
     let toc_depth_row = adw::ComboRow::new();
-    toc_depth_row.set_title("ToC Depth");
+    toc_depth_row.set_title("Contents depth");
     toc_depth_row.set_model(Some(&toc_depth_labels));
     toc_depth_row.set_selected(1);
     toc_depth_row.set_sensitive(false);
@@ -1040,7 +1040,7 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     sec_group.add(&abstract_row);
 
     let abstract_text_row = adw::EntryRow::new();
-    abstract_text_row.set_title("Abstract Text");
+    abstract_text_row.set_title("Abstract text");
     abstract_text_row.set_visible(false);
     sec_group.add(&abstract_text_row);
 
@@ -1050,7 +1050,7 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     }
 
     let keywords_row = adw::SwitchRow::new();
-    keywords_row.set_title("Keywords Line");
+    keywords_row.set_title("Keywords line");
     keywords_row.set_active(false);
     sec_group.add(&keywords_row);
 
@@ -1065,13 +1065,13 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     }
 
     let heading_numbering_row = adw::SwitchRow::new();
-    heading_numbering_row.set_title("Numbered Headings");
+    heading_numbering_row.set_title("Numbered headings");
     heading_numbering_row.set_subtitle("e.g. 1. Introduction, 1.1 Background");
     heading_numbering_row.set_active(false);
     sec_group.add(&heading_numbering_row);
 
     let heading_format_row = adw::ComboRow::new();
-    heading_format_row.set_title("Numbering Format");
+    heading_format_row.set_title("Numbering format");
     heading_format_row.set_model(Some(&gtk4::StringList::new(
         &NUMBERING_FORMATS
             .iter()
@@ -1094,7 +1094,7 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     poetry_group.set_visible(false);
 
     let poetry_preset_row = adw::ComboRow::new();
-    poetry_preset_row.set_title("Verse Style");
+    poetry_preset_row.set_title("Verse style");
     poetry_preset_row.set_subtitle("How poem titles, dedications and line numbers are set");
     poetry_preset_row.set_model(Some(&gtk4::StringList::new(
         &POETRY_PRESETS.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
@@ -1102,7 +1102,7 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     poetry_group.add(&poetry_preset_row);
 
     let poetry_numbering_row = adw::ComboRow::new();
-    poetry_numbering_row.set_title("Line Numbers");
+    poetry_numbering_row.set_title("Line numbers");
     poetry_numbering_row.set_model(Some(&gtk4::StringList::new(
         &POETRY_NUMBERING.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
     )));
@@ -1135,7 +1135,7 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
 fn build_languages_tab(notebook: &Notebook) -> Vec<(String, adw::SwitchRow)> {
     // ── Tab 4: Languages ─────────────────────────────────────────────────
     let lang_group = adw::PreferencesGroup::new();
-    lang_group.set_title("Language Support");
+    lang_group.set_title("Language support");
     lang_group.set_description(Some(
         "Enable the scripts used in your document. Each loads the correct \
          font hint and text-direction setting.",
@@ -1170,7 +1170,7 @@ struct PackagesTab {
 fn build_packages_tab(notebook: &Notebook) -> PackagesTab {
     // ── Tab 5: Packages ──────────────────────────────────────────────────
     let pkg_group = adw::PreferencesGroup::new();
-    pkg_group.set_title("Extra Packages");
+    pkg_group.set_title("Extra packages");
     pkg_group.set_description(Some(
         "Adds #import statements to the generated template. \
          You can add more packages manually at any time.",
@@ -1269,11 +1269,11 @@ fn build_cv_elements_group(
     cv_elements_path: &Rc<RefCell<Option<PathBuf>>>,
     on_cv_elements_change: &OnCvElementsCb,
 ) -> (adw::PreferencesGroup, adw::EntryRow) {
-    // ── Skrizhal CV Elements group — lives in the Template tab's left
+    // ── Skrizhal CV elements group — lives in the Template tab's left
     // column alongside the preset list, shown only in CV Mode, instead of
     // a separate bar that cramped the rest of the dialog.
     let cv_elements_group = adw::PreferencesGroup::new();
-    cv_elements_group.set_title("Skrizhal CV Elements");
+    cv_elements_group.set_title("Skrizhal CV elements");
     cv_elements_group.set_description(Some(
         "A YAML file of jobs, degrees, awards, etc. from Skrizhal (a separate reference-manager \
          app) — used to fill in this CV instead of a bibliography.",
@@ -1862,13 +1862,13 @@ fn build_templates_gallery(
 
     // Left: scrollable preset list
     let gallery_group = adw::PreferencesGroup::new();
-    gallery_group.set_title("Starting Template");
+    gallery_group.set_title("Starting template");
     gallery_group.set_description(Some(
         "Click a preset to pre-fill the form and see a preview.",
     ));
 
     let saved_group = adw::PreferencesGroup::new();
-    saved_group.set_title("Your Templates");
+    saved_group.set_title("Your templates");
     saved_group.set_description(Some(
         "Settings you saved, ready to start another document from.",
     ));
@@ -2358,11 +2358,11 @@ struct CvModeTargets<'a> {
 }
 
 const LATEX_LOCK_TOOLTIP: &str = "LaTeX Look always uses New Computer Modern at its \
-own tight leading — Body Font and Line Spacing are ignored while this style is selected";
+own tight leading — Body font and Line spacing are ignored while this style is selected";
 
 /// `generate_typst_template`'s `style_key == "latex"` branch hardcodes the
 /// font and leading/spacing outright, ignoring `TemplateSettings::font` and
-/// `::spacing` completely — but until this existed, the Body Font and Line
+/// `::spacing` completely — but until this existed, the Body font and Line
 /// Spacing rows stayed fully interactive with no sign that a choice made
 /// there would silently do nothing on Apply while LaTeX Look was selected.
 /// Grey both rows out and say why instead.
@@ -2405,7 +2405,7 @@ fn wire_style_defaults(form: &FormWidgets) {
     });
 }
 
-/// Keeps the Body Font / Line Spacing lock (see `apply_latex_font_lock`) in
+/// Keeps the Body font / Line spacing lock (see `apply_latex_font_lock`) in
 /// sync with both of the Style row's own two triggers: picking a different
 /// citation style directly, and CV Mode swapping its model out from under it.
 /// Connected after `wire_cv_mode_toggle` so its own `cv_switch` handler (which
@@ -2526,11 +2526,11 @@ fn wire_cv_mode_toggle(
             m_author.set_title(if cv_on { "Full Name" } else { "Author" });
             m_subtitle.set_title(if cv_on { "Email" } else { "Subtitle" });
             m_affil.set_title(if cv_on { "Location" } else { "Affiliation" });
-            m_course.set_title(if cv_on { "Phone" } else { "Course / Context" });
+            m_course.set_title(if cv_on { "Phone" } else { "Course / context" });
             m_professor.set_title(if cv_on {
                 "Links / Website"
             } else {
-                "Professor / Instructor"
+                "Professor / instructor"
             });
             m_author_pin.set_visible(!cv_on);
             m_affil_pin.set_visible(!cv_on);
@@ -2562,7 +2562,7 @@ fn wire_cv_mode_toggle(
                     m_style_row.set_subtitle(desc);
                 }
             } else {
-                m_style_group.set_title("Citation & Heading Style");
+                m_style_group.set_title("Citation & heading style");
                 m_style_row.set_model(Some(&m_style_model));
                 m_style_row.set_subtitle("Sets heading formatting and bibliography output");
             }
@@ -2656,7 +2656,7 @@ struct ActionButtons {
     apply_btn: Button,
 }
 
-/// Cancel, Create Document and Apply to Current. Create asks for a name and
+/// Cancel, Create document and Apply to current. Create asks for a name and
 /// writes the new file into the Zerkalo folder; Apply hands the settings back to the caller for splicing into
 /// the open document.
 fn wire_action_buttons(
@@ -2812,7 +2812,7 @@ impl TemplateDialog {
         _last_used_advanced: bool,
     ) -> Self {
         let window = adw::Window::builder()
-            .title("New from Template")
+            .title("New from template")
             .transient_for(parent)
             .modal(true)
             .default_width(1240)
@@ -2831,18 +2831,18 @@ impl TemplateDialog {
         let cancel_btn = Button::with_label("Cancel");
         cancel_btn.add_css_class("flat");
         header.pack_start(&cancel_btn);
-        let preview_code_btn = Button::with_label("Preview Code…");
+        let preview_code_btn = Button::with_label("Preview code…");
         preview_code_btn.add_css_class("flat");
         preview_code_btn
             .set_tooltip_text(Some("Preview the Typst preamble that will be generated"));
         header.pack_start(&preview_code_btn);
         // pack_end calls apply in reverse visual order, so this ends up
         // leftmost of the end-aligned group: [CV toggle] [Apply/Create]
-        let create_btn = Button::with_label("Create Document");
+        let create_btn = Button::with_label("Create document");
         create_btn.add_css_class("suggested-action");
         create_btn.add_css_class("pill");
         header.pack_end(&create_btn);
-        let apply_btn = Button::with_label("Apply to Current");
+        let apply_btn = Button::with_label("Apply to current");
         apply_btn.add_css_class("suggested-action");
         apply_btn.add_css_class("pill");
         apply_btn.set_visible(false);
@@ -3024,11 +3024,11 @@ impl TemplateDialog {
         // Same adw::Banner pattern as the editor's frontmatter banner — a
         // one-time "here's the concept" strip, dismissible for this session.
         // Text starts in Create framing; `set_on_apply` below rewrites it for
-        // Change Document Style, where the thing people actually need to
+        // Change document style, where the thing people actually need to
         // know is that their existing writing survives.
         let intro_banner = adw::Banner::new(
             "Sets up title, layout, and citation style for a new document — nothing is \
-             written until you press Create Document.",
+             written until you press Create document.",
         );
         intro_banner.set_button_label(Some("Got it"));
         intro_banner.set_revealed(true);
@@ -3128,14 +3128,14 @@ impl TemplateDialog {
 
     /// Turns CV Mode on/off, which filters the gallery to CV-only (or
     /// non-CV-only) presets, hides the Sections/Packages tabs, and reveals
-    /// the Skrizhal CV Elements selector.
+    /// the Skrizhal CV elements selector.
     pub fn preselect_cv_mode(&self, active: bool) {
         self.form.set_cv_mode(active);
     }
 
-    /// Restores which template kind (Academic/Book/CV/Letter) "Apply to Current" should
+    /// Restores which template kind (Academic/Book/CV/Letter) "Apply to current" should
     /// regenerate — independent of `preselect_cv_mode`, which only drives the Metadata
-    /// group's field labels. Without this, re-opening "Update Template Settings" on an
+    /// group's field labels. Without this, re-opening "Update template Settings" on an
     /// existing document leaves the dialog's body-kind state at its `Academic` default
     /// (it's normally only set by clicking a gallery preset, which this flow skips), so
     /// Apply regenerates an Academic preamble even for a CV/Book/Letter document — for CVs
@@ -3173,19 +3173,19 @@ impl TemplateDialog {
     }
 
     /// Register a callback that receives the generated template content and sidecar settings,
-    /// without a file-save dialog. Also shows the "Apply to Current" button.
+    /// without a file-save dialog. Also shows the "Apply to current" button.
     pub fn set_on_apply(&self, f: impl Fn(String, SidecarSettings) + 'static) {
         *self.on_apply.borrow_mut() = Some(Box::new(f));
         self.apply_btn.set_visible(true);
-        // Create Document has nothing to do in this mode — on_create is never
+        // Create document has nothing to do in this mode — on_create is never
         // set by this call path, so it would sit there as a live-looking
         // button that silently does nothing if clicked. Previously left
-        // visible alongside Apply to Current, which read as "pick one of
+        // visible alongside Apply to current, which read as "pick one of
         // two ways to finish" when there was really only one.
         self.create_btn.set_visible(false);
         // Retitle the window to clarify intent — must match the menu row
-        // that opens it ("Change Document Style…", app_window/mod.rs).
-        self.window.set_title(Some("Change Document Style"));
+        // that opens it ("Change document style…", app_window/mod.rs).
+        self.window.set_title(Some("Change document style"));
         // The banner's whole point changes here: Create mode is about what's
         // about to be generated, Apply mode is about what's about to be kept.
         self.intro_banner.set_title(
@@ -3320,7 +3320,7 @@ impl TemplateDialog {
     }
 
     /// Pre-fill all dialog fields from a sidecar. Called when opening
-    /// "Update Template Settings" for a document that has a sidecar file.
+    /// "Update template Settings" for a document that has a sidecar file.
     pub fn preselect_from_sidecar(&self, s: &SidecarSettings) {
         self.form.apply_settings(s);
     }
@@ -3743,11 +3743,11 @@ pub fn parse_doc_kind(content: &str) -> Option<String> {
 /// wrong body-kind state once, which then got written back into the sidecar
 /// and kept perpetuating itself), but a body that calls `#cv-section(...)` or
 /// imports `cv-helpers.typ` unambiguously needs a CV preamble regardless of
-/// what any metadata says. "Update Template Settings" checks this after
+/// what any metadata says. "Update template Settings" checks this after
 /// consulting the sidecar/marker and overrides to CV if it disagrees — see
 /// `open_template_for_active_document` in `app_window/mod.rs`, the single
 /// shared entry point for both the header's "Template" button and the
-/// hamburger's "Update Template Settings…" (the two used to be separate
+/// hamburger's "Update template Settings…" (the two used to be separate
 /// ~110-line copies of this preselection sequence; consolidated so they
 /// can't drift from each other, including this check).
 pub fn body_looks_like_cv(content: &str) -> bool {
@@ -3999,7 +3999,7 @@ mod tests {
 
     #[test]
     fn generated_settings_round_trip_back_out_of_the_document() {
-        // Without these, "Update Template Settings" on a document with no
+        // Without these, "Update template Settings" on a document with no
         // sidecar showed form defaults, and Apply then wrote those defaults in
         // — silently resetting size, page numbers, headers, packages and
         // languages the document already had.
@@ -4476,7 +4476,7 @@ mod tests {
 
     #[test]
     fn every_gallery_preset_preview_compiles() {
-        // Regression coverage for the New from Template gallery: every preset
+        // Regression coverage for the New from template gallery: every preset
         // (including the CV ones, whose preview previously always failed —
         // they `#import "cv-helpers.typ"` but generate_preset_preview passed
         // an empty override map, so nothing ever provided that file) must
@@ -4809,7 +4809,7 @@ french:
 
     #[test]
     fn apply_body_splice_regenerates_cv_body_across_sidebar_boundary() {
-        // Reproduces "Update Template Settings": pick a different CV preset
+        // Reproduces "Update template Settings": pick a different CV preset
         // (e.g. CV — Modern after CV — Two-Column) and click Apply. That path
         // calls apply_body_splice(existing, fresh) directly — unlike
         // EditorPane::apply_cv_style's in-document quick-switcher, which has
@@ -5017,12 +5017,12 @@ french:
     fn updating_template_settings_on_a_cv_must_regenerate_with_cv_body_kind() {
         use std::collections::HashMap;
 
-        // Reproduces the "Update Template Settings" bug: preselect_from_sidecar
+        // Reproduces the "Update template Settings" bug: preselect_from_sidecar
         // (and the no-sidecar parse_doc_kind fallback) used to only flip
         // cv_switch — driving the Metadata group's Email/Location/Phone/Links
         // labels — without ever restoring body_kind_state, which stays at its
         // BodyKind::Academic default because that state is otherwise only set
-        // by clicking a gallery preset (a step "Update Template Settings"
+        // by clicking a gallery preset (a step "Update template Settings"
         // skips entirely). Apply then regenerated an Academic preamble for a
         // document whose preserved body still called #section(...) — defined
         // only by the Cv preamble — producing "unknown variable: section".
@@ -5071,7 +5071,7 @@ french:
         }
 
         // The existing document: a real CV, body preserved as-is (the part
-        // "Apply to Current" never regenerates).
+        // "Apply to current" never regenerates).
         let existing_doc = generate_typst_template(&base_settings(BodyKind::Cv));
         assert!(
             existing_doc.contains("#section("),
@@ -6269,7 +6269,7 @@ Body text.\n";
 
     /// Adding a running header to a document with LaTeX margins and no title
     /// page, and no sidecar, used to regenerate an unwanted title page: the
-    /// "Title Page" switch had no reader on the no-sidecar path at all (see
+    /// "Title page" switch had no reader on the no-sidecar path at all (see
     /// `parse_has_title_page`'s doc comment), so it silently stayed at the
     /// dialog's construction-time default (on) instead of the document's
     /// actual (off) state. Reproduces the exact document a real bug report
@@ -6317,7 +6317,7 @@ Some real writing the user already did.\n";
         // app_window.rs's open_template_for_active_document does it, starting
         // from the widget defaults a freshly-built TemplateDialog has (the
         // "auto-preview first preset" state: TEMPLATE_PRESETS[0], including
-        // the Title Page switch's own construction-time default of *on*).
+        // the Title page switch's own construction-time default of *on*).
         let p0 = &TEMPLATE_PRESETS[0];
         let mut s = TemplateSettings {
             title: String::new(),

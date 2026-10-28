@@ -1,6 +1,6 @@
 //! The quiet "Updated to 0.55 — what's new" note in the status bar.
 //!
-//! After an update Zerkalo used to open the What's New window by itself, on
+//! After an update Zerkalo used to open the What's new window by itself, on
 //! top of whatever the person sat down to do. The note says the same thing
 //! without asking for anything: it waits in the status bar, across launches,
 //! until it is clicked or closed.

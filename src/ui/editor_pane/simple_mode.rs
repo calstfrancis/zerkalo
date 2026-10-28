@@ -93,6 +93,12 @@ impl EditorPane {
         *self.simple_mode.borrow_mut() = on;
         self.simple_mode_label
             .set_text(if on { "show template" } else { "hide template" });
+        self.simple_mode_btn.set_tooltip_text(Some(if on {
+            "The template's setup lines at the top of the file are hidden. Click to show \
+             them. To change them, use ☰ → Document tools → Change document style…."
+        } else {
+            "The template's setup lines are showing at the top of the file. Click to hide them."
+        }));
         self.apply_simple_mode_to_buffer(on);
         if on && !self.format_bar_visible() && !*self.user_dismissed_format_bar.borrow() {
             self.set_format_bar_visible(true);

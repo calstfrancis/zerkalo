@@ -24,7 +24,7 @@ pub(super) const ACADEMIC_SNIPPETS: &[(&str, &str, &str, &str)] = &[
     ("line", "Horizontal rule",
      "A line across the full width of the page",
      "#line(length: 100%)"),
-    ("outline", "Table of Contents",
+    ("outline", "Table of contents",
      "Auto-generated table of contents (headings up to depth 3)",
      "#outline(title: [Contents], depth: 3)"),
     ("lorem", "Lorem ipsum",
@@ -102,7 +102,7 @@ pub(super) fn snippet_items(cv_mode: bool) -> Vec<CompletionItem> {
             // Skip the title when it's just the name respaced ("Page break" for
             // `pagebreak`) — repeating it reads as two dashes and no content.
             // Drop the title when the description already says it, so the hint
-            // doesn't read "outline — Table of Contents — Auto-generated table
+            // doesn't read "outline — Table of contents — Auto-generated table
             // of contents".
             let redundant = title.replace(' ', "").eq_ignore_ascii_case(name)
                 || desc.to_lowercase().contains(&title.to_lowercase());

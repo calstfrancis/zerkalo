@@ -21,7 +21,7 @@ pub fn has_page_margins(content: &str) -> bool {
     page_margins(content).is_some()
 }
 
-// "Update Template Settings" pre-fills from the sidecar, and falls back to
+// "Update template Settings" pre-fills from the sidecar, and falls back to
 // reading the document when there isn't one. Every setting missing from that
 // fallback comes back as a form default, and Apply then writes that default
 // into the document — so a setting with no parser here is a setting the dialog
@@ -359,7 +359,7 @@ pub(crate) fn unquote(v: &str) -> Option<String> {
 
 /// Parse the paper selection from `#set page(…)`. Returns `"custom"` for a
 /// document sized with explicit `width:`/`height:` — without that, re-opening
-/// "Update Template Settings" on a custom-sized document silently reset it to
+/// "Update template Settings" on a custom-sized document silently reset it to
 /// US Letter, because nothing here reported a size at all.
 pub fn parse_paper(content: &str) -> Option<String> {
     let mut found = None;
@@ -524,7 +524,7 @@ pub(crate) fn page_margins(content: &str) -> Option<(String, String, String, Str
 /// Generate a minimal Zerkalo template preamble for wrapping imported content.
 /// Returns the TEMPLATE_BEGIN…TEMPLATE_END block with sensible academic defaults.
 /// The user can immediately update font, spacing, and citation style via
-/// "Update Template Settings" after import.
+/// "Update template Settings" after import.
 pub fn default_import_preamble() -> String {
     let settings = TemplateSettings {
         title: String::new(),
@@ -1101,11 +1101,11 @@ pub fn parse_has_toc(content: &str) -> bool {
 /// `generate_letter_header` open with the exact `// ── Title block` comment;
 /// `generate_header_only` never writes it.
 ///
-/// Without this, the "Title Page" switch had no reader at all on the
+/// Without this, the "Title page" switch had no reader at all on the
 /// no-sidecar path — every other section toggle (TOC, abstract, keywords)
 /// has one, but this one didn't, so it silently stayed at the dialog's
 /// construction-time default (on) regardless of what the document actually
-/// had. Reopening "Update Template Settings" on a document with the title
+/// had. Reopening "Update template Settings" on a document with the title
 /// page off and pressing Apply for any reason (e.g. just to change the
 /// running header) silently regenerated an unwanted title page back onto it.
 pub fn parse_has_title_page(content: &str) -> bool {

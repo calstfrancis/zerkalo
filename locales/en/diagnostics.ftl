@@ -12,10 +12,10 @@ diag-unknown-variable-advice = It's used here but never defined. Check the spell
 
 diag-unknown-font-named = The font “{ $name }” isn't installed
 diag-unknown-font = That font isn't installed
-diag-unknown-font-advice = The document will use a substitute, so the layout may look wrong. Either install the font, or pick another in Template → Body Font.
+diag-unknown-font-advice = The document will use a substitute, so the layout may look wrong. Either install the font, or pick another in Template → Body font.
 
 diag-variable-font = This font is a “variable” font, which Zerkalo can't display reliably
-diag-variable-font-advice = The text may render with the wrong weight or spacing. Install a static version of the font (separate Regular, Bold and Italic files) or pick another in Template → Body Font. The font named in the hint below is the one to replace.
+diag-variable-font-advice = The text may render with the wrong weight or spacing. Install a static version of the font (separate Regular, Bold and Italic files) or pick another in Template → Body font. The font named in the hint below is the one to replace.
 
 diag-file-not-found-named = Zerkalo can't find the file “{ $name }”
 diag-file-not-found = Zerkalo can't find a file this document uses
@@ -25,7 +25,7 @@ diag-bibliography-unreadable = Your bibliography file has an entry Zerkalo can't
 diag-bibliography-unreadable-advice = One malformed entry breaks the whole file, not just that entry — which is also why every citation in the document may be showing as “not found” right now; they'll resolve again once this is fixed. A common cause from Zotero/BetterBibTeX exports: a non-numeric year like “Winter 2001” instead of a plain “2001”. The line below points at the exact entry.
 
 diag-package-unavailable = A package this document uses couldn't be downloaded
-diag-package-unavailable-advice = Packages download the first time they're used, so this usually means there was no internet connection. Reconnect and compile again.
+diag-package-unavailable-advice = Packages download the first time they're used, so this usually means there was no internet connection. Reconnect and update the preview again.
 
 diag-missing-closer-named = A “{ $thing }” is missing
 diag-missing-closer = Something opened here was never closed

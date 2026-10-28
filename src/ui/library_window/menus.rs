@@ -180,7 +180,7 @@ impl LibraryWindow {
         if *self.current_filter.borrow() == LibraryFilter::Trash {
             let s = Menu::new();
             s.append_item(&item("Restore", "doc.restore"));
-            s.append_item(&item("Delete Forever…", "doc.delete-forever"));
+            s.append_item(&item("Delete forever…", "doc.delete-forever"));
             menu.append_section(None, &s);
             return Some(menu);
         }
@@ -192,14 +192,14 @@ impl LibraryWindow {
             open.append_item(&item("Export…", "doc.export"));
         } else {
             // Nothing to open or export until the file is found again.
-            open.append_item(&item("Locate File…", "doc.locate"));
+            open.append_item(&item("Locate file…", "doc.locate"));
             open.append_item(&item("Rename…", "doc.rename"));
         }
         menu.append_section(None, &open);
 
         let keep = Menu::new();
         keep.append_item(&item("Organize…", "doc.organize"));
-        keep.append_item(&item("Edit Notes…", "doc.notes"));
+        keep.append_item(&item("Edit notes…", "doc.notes"));
         keep.append_item(&item(
             if doc.pinned { "Unpin" } else { "Pin to Top" },
             "doc.pin",
@@ -216,10 +216,10 @@ impl LibraryWindow {
 
         let more = Menu::new();
         if matches!(*self.current_filter.borrow(), LibraryFilter::Project(_)) {
-            more.append_item(&item("Set as Project Root", "doc.set-root"));
+            more.append_item(&item("Set as project root", "doc.set-root"));
         }
         if !doc.path.starts_with(&self.work_dir) {
-            more.append_item(&item("Move into Zerkalo Folder…", "doc.move-in"));
+            more.append_item(&item("Move into Zerkalo folder…", "doc.move-in"));
         }
         more.append_item(&item("Remove from list…", "doc.remove"));
         let rest = Menu::new();
@@ -453,7 +453,7 @@ impl LibraryWindow {
         let menu = Menu::new();
         if let Ok(Some(_)) = self.library.borrow().project_root_path(project_id) {
             let s = Menu::new();
-            s.append_item(&item("Open Root File", "project.open-root"));
+            s.append_item(&item("Open root file", "project.open-root"));
             menu.append_section(None, &s);
         }
         let s = Menu::new();
@@ -521,7 +521,7 @@ impl LibraryWindow {
         let menu = Menu::new();
         let s = Menu::new();
         s.append_item(&item("Rename…", "label.rename"));
-        s.append_item(&item("Change Color…", "label.color"));
+        s.append_item(&item("Change colour…", "label.color"));
         menu.append_section(None, &s);
         let s = Menu::new();
         s.append_item(&item("Delete…", "label.delete"));

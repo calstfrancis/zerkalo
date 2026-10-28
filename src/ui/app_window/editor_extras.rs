@@ -1,6 +1,6 @@
 //! Editor-adjacent wiring: the file tree's unsaved marker, tab-context delete,
 //! image and document drag-and-drop, the GOST font toggle, and the sidebar's
-//! Update Template button. Split out of `AppWindow::new`.
+//! Update template button. Split out of `AppWindow::new`.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -195,7 +195,7 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         });
     }
 
-    // ── Sidebar toolbar: Update Template button ───────────────────────────
+    // ── Sidebar toolbar: Update template button ───────────────────────────
     // Icon matches the Library button beside it in the header — the two
     // used to be the only text-only buttons on that side, one with an icon
     // and one without.

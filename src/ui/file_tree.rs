@@ -463,7 +463,7 @@ impl FileTree {
                     badge.add_css_class("accent");
                     badge.set_margin_end(4);
                     badge.set_tooltip_text(Some(
-                        "This is the file that gets compiled and shown in the preview",
+                        "This is the main document — the one the preview shows",
                     ));
                     row_box.append(&badge);
                 }
@@ -590,7 +590,7 @@ impl FileTree {
         row.add_controller(drop_tgt);
     }
 
-    /// Attach a right-click gesture that shows a context menu with "Set as Compilation Root"
+    /// Attach a right-click gesture that shows a context menu with "Set as root file"
     /// and "Delete".
     fn attach_context_menu(&self, row: &ListBoxRow, file_path: &Path, filename: &str) {
         let popover = Popover::new();
@@ -602,7 +602,7 @@ impl FileTree {
         btn_box.set_margin_start(4);
         btn_box.set_margin_end(4);
 
-        let set_root_btn = Button::with_label("Set as Root File");
+        let set_root_btn = Button::with_label("Set as root file");
         set_root_btn.add_css_class("flat");
         set_root_btn.set_tooltip_text(Some(
             "Make this the file that gets compiled and shown in the preview — \
@@ -624,9 +624,9 @@ impl FileTree {
         let del_btn = Button::with_label("Delete");
         del_btn.add_css_class("destructive-action");
 
-        let clear_root_btn = Button::with_label("Clear Root File");
+        let clear_root_btn = Button::with_label("Clear root file");
         clear_root_btn.add_css_class("flat");
-        clear_root_btn.set_tooltip_text(Some("Go back to compiling whichever file you have open"));
+        clear_root_btn.set_tooltip_text(Some("Go back to previewing whichever file you have open"));
 
         btn_box.append(&set_root_btn);
         btn_box.append(&include_btn);
@@ -668,7 +668,7 @@ impl FileTree {
             }
         });
 
-        // "Set as Root File" button
+        // "Set as root file" button
         let pop_for_set_root = popover.clone();
         let path_set_root = file_path.to_path_buf();
         let set_root_cb = self.on_set_root.clone();
@@ -679,7 +679,7 @@ impl FileTree {
             }
         });
 
-        // "Clear Root File" button
+        // "Clear root file" button
         let pop_for_clear_root = popover.clone();
         let clear_root_cb = self.on_clear_root.clone();
         clear_root_btn.connect_clicked(move |_| {

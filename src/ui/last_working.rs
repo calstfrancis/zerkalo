@@ -200,7 +200,7 @@ pub fn help_request(
     if !changes.is_empty() {
         let when = age.map(age_text).unwrap_or_else(|| "earlier".to_string());
         out.push_str(&format!(
-            "\nIt last compiled without problems {when}. Changed since then:\n"
+            "\nIt last worked without problems {when}. Changed since then:\n"
         ));
         out.push_str(&cap_lines(&combined_diff(changes), MAX_DIFF_LINES));
     }

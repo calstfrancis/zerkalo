@@ -288,6 +288,9 @@ pub struct EditorPane {
 /// hamburger menu, between "Font Management…" and "Settings".
 fn set_autocorrect_label(label: &Label, enabled: bool) {
     set_toggle_label(label, "Autocorrect", enabled);
+    if let Some(btn) = label.ancestor(Button::static_type()) {
+        btn.set_tooltip_text(toggle_tip("Autocorrect", enabled).as_deref());
+    }
 }
 
 fn set_toggle_label(label: &Label, text: &str, enabled: bool) {
@@ -298,8 +301,45 @@ fn set_toggle_label(label: &Label, text: &str, enabled: bool) {
     }
 }
 
+/// What a toggle's tooltip says: whether it's on now, and what a click will
+/// do — "Toggle focus mode" left both to guesswork.
+pub(crate) fn toggle_tip(name: &str, on: bool) -> Option<String> {
+    Some(match (name, on) {
+        ("focus", true) => {
+            "Focus mode is on: the sidebar and preview are hidden. Click to show them.".into()
+        }
+        ("focus", false) => "Focus mode is off. Click to hide the sidebar and preview.".into(),
+        ("autosave", true) => "Autosave is on: your document saves 3 seconds after you stop \
+             typing, and whenever you switch away, update the preview, export or quit. \
+             Click to turn it off."
+            .into(),
+        ("autosave", false) => crate::keybindings::shown(
+            "Autosave is off: your document saves only when you press {save}. Click to turn it on.",
+        )
+        .into(),
+        ("format bar", true) => "The formatting toolbar is showing. Click to hide it.".into(),
+        ("format bar", false) => "The formatting toolbar is hidden. Click to show it.".into(),
+        ("Autocorrect", true) => {
+            "Autocorrect is on: spelling is fixed as you type. Click to turn it off.".into()
+        }
+        ("Autocorrect", false) => {
+            "Autocorrect is off. Click to have spelling fixed as you type.".into()
+        }
+        ("GOST type B font", true) => {
+            "The whole window uses the GOST type B font. Click to go back to the usual font.".into()
+        }
+        ("GOST type B font", false) => {
+            "Click to show the whole window in the GOST type B engineering font.".into()
+        }
+        _ => return None,
+    })
+}
+
 fn set_status_toggle(btn: &Button, label: &Label, text: &str, active: bool) {
     set_toggle_label(label, text, active);
+    if let Some(tip) = toggle_tip(text, active) {
+        btn.set_tooltip_text(Some(&tip));
+    }
     let pressed = if active {
         gtk4::AccessibleTristate::True
     } else {
@@ -754,10 +794,11 @@ impl EditorPane {
             let lbl_g = ep.gost_label.clone();
             let cb_g = ep.on_gost_toggle.clone();
             let gost_on = ep.gost_enabled.clone();
+            let gb = gost_btn.clone();
             gost_btn.connect_clicked(move |_| {
                 let new_val = !*gost_on.borrow();
                 *gost_on.borrow_mut() = new_val;
-                set_toggle_label(&lbl_g, "GOST Type B font", new_val);
+                set_status_toggle(&gb, &lbl_g, "GOST type B font", new_val);
                 if let Some(f) = cb_g.borrow().as_ref() {
                     f(new_val);
                 }
@@ -1243,7 +1284,7 @@ impl EditorPane {
         }
     }
 
-    // ── Find & Replace ────────────────────────────────────────────────────────
+    // ── Find & replace ────────────────────────────────────────────────────────
 
     // ── LSP completions ───────────────────────────────────────────────────────
 
@@ -1379,7 +1420,7 @@ impl EditorPane {
         // pickers. Without this, the header Style dropdown changed the
         // document's headings/title page/@zerkalo-style annotation directly
         // but left the `.zerkalo.toml` sidecar on whatever style was active
-        // before — so "Update Template Settings" would reopen showing the
+        // before — so "Update template Settings" would reopen showing the
         // *old* style, and Apply would silently regenerate the document back
         // onto it, discarding the choice made here.
         if crate::styles::has_template_block(&content) {
@@ -1471,7 +1512,12 @@ impl EditorPane {
     /// so the CSS is applied, matching what a click would have done.
     pub fn set_gost_enabled(&self, enabled: bool) {
         *self.gost_enabled.borrow_mut() = enabled;
-        set_toggle_label(&self.gost_label, "GOST Type B font", enabled);
+        set_status_toggle(
+            &self.gost_btn,
+            &self.gost_label,
+            "GOST type B font",
+            enabled,
+        );
         self.gost_restoring.set(true);
         if let Some(f) = self.on_gost_toggle.borrow().as_ref() {
             f(enabled);
@@ -1507,12 +1553,12 @@ impl EditorPane {
         );
     }
 
-    /// Replaces the calm "is my work safe" line in the status bar.
     /// Lists the messages Zerkalo has shown this session, under the safety line.
     pub fn show_recent_messages(&self) {
         crate::ui::notify::show_recent(&self.safe_btn);
     }
 
+    /// Replaces the calm "is my work safe" line in the status bar.
     pub fn set_safety_line(&self, text: &str) {
         if self.safe_label.text() != text {
             self.safe_label.set_text(text);
@@ -2067,7 +2113,7 @@ impl EditorPane {
         }
     }
 
-    /// Wired by the window: what to do when the hover popup's Fix It is pressed,
+    /// Wired by the window: what to do when the hover popup's Fix it is pressed,
     /// so it goes through exactly the same path as the Problems panel's Fix.
     pub fn set_on_fix_request(&self, f: impl Fn(DiagMark) + 'static) {
         *self.on_fix_request.borrow_mut() = Some(Box::new(f));

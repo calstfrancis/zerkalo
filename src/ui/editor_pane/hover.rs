@@ -167,7 +167,7 @@ impl EditorPane {
                     fix_row.append(&fix_desc);
 
                     if fix.is_some() {
-                        let fix_btn = Button::with_label("Fix It");
+                        let fix_btn = Button::with_label("Fix it");
                         fix_btn.add_css_class("suggested-action");
                         let request = on_fix_request.clone();
                         let mark_fix = mark.clone();

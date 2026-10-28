@@ -801,12 +801,12 @@ pub fn annotate_window(overlay: &HelpOverlay, t: &AnnotationTargets) {
     overlay.annotate_with_icon(
         t.sync_btn,
         "mail-send-receive-symbolic",
-        "Save & Back Up",
+        "Save & back up",
         crate::keybindings::shown("Saves everything and sends it to your backup, so it survives losing this computer. {git_sync} — plain {save} saves to disk without backing up."),
     );
     overlay.annotate_with_icon(
         // The actual "Compile now" icon button — not the local `compile_btn`
-        // passed here, which is really the Toggle Preview button and is
+        // passed here, which is really the Show or hide the preview button and is
         // already covered by `t.preview_label` below (its own child, so its
         // bounds sit inside the same clickable area). That mismatch meant
         // this bubble's "Re-draw the page" text — clearly recompile, not
@@ -874,7 +874,7 @@ mod tests {
         );
         assert_eq!(
             bubble_width_for(
-                "Save & Back Up",
+                "Save & back up",
                 "Saves everything and sends it to your backup, so it survives losing this computer. Ctrl+Shift+S — plain Ctrl+S saves to disk without backing up.",
             ),
             BUBBLE_W_WIDE

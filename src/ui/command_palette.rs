@@ -33,7 +33,7 @@ impl CommandPalette {
             .modal(true)
             .default_width(520)
             .default_height(420)
-            .title("Command Palette")
+            .title("Command palette")
             .resizable(false)
             .build();
         window.set_hide_on_close(true);
@@ -296,12 +296,12 @@ pub fn default_commands() -> Vec<PaletteItem> {
     vec![
         PaletteItem {
             id: "new_file".into(),
-            label: "New Blank Document…".into(),
+            label: "New blank document…".into(),
             subtitle: "Create a new document in the work folder".into(),
         },
         PaletteItem {
             id: "open_file".into(),
-            label: "Open File…".into(),
+            label: "Open file…".into(),
             subtitle: "Browse to open a file".into(),
         },
         PaletteItem {
@@ -321,42 +321,42 @@ pub fn default_commands() -> Vec<PaletteItem> {
         },
         PaletteItem {
             id: "toggle_find".into(),
-            label: "Find & Replace".into(),
+            label: "Find & replace".into(),
             subtitle: crate::keybindings::shown("Show or hide the find and replace bar ({find})").into(),
         },
         PaletteItem {
             id: "find_in_files".into(),
-            label: "Find in Files\u{2026}".into(),
+            label: "Find in files\u{2026}".into(),
             subtitle: "Search across all project files (Ctrl+Shift+F)".into(),
         },
         PaletteItem {
             id: "project_outline".into(),
-            label: "Project Outline".into(),
+            label: "Project outline".into(),
             subtitle: "Jump to any heading in the current document".into(),
         },
         PaletteItem {
             id: "git_sync".into(),
-            label: "Save a Version & Back It Up".into(),
+            label: "Save a version and back up".into(),
             subtitle: crate::keybindings::shown("Save this version and send it to every backup location ({git_sync})").into(),
         },
         PaletteItem {
             id: "recent_messages".into(),
-            label: "Recent Messages".into(),
+            label: "Recent messages".into(),
             subtitle: "Read again anything Zerkalo said that has gone from the screen".into(),
         },
         PaletteItem {
             id: "text_bigger".into(),
-            label: "Make Text Bigger".into(),
+            label: "Make text bigger".into(),
             subtitle: "Enlarge the writing (Ctrl+=)".into(),
         },
         PaletteItem {
             id: "text_smaller".into(),
-            label: "Make Text Smaller".into(),
+            label: "Make text smaller".into(),
             subtitle: "Shrink the writing (Ctrl+-)".into(),
         },
         PaletteItem {
             id: "text_reset".into(),
-            label: "Reset Text Size".into(),
+            label: "Reset text size".into(),
             subtitle: "Back to the usual size (Ctrl+0)".into(),
         },
         PaletteItem {
@@ -366,23 +366,23 @@ pub fn default_commands() -> Vec<PaletteItem> {
         },
         PaletteItem {
             id: "get_latest".into(),
-            label: "Get Latest from GitHub".into(),
+            label: "Get latest from GitHub".into(),
             subtitle: "Bring everything backed up online down to this computer".into(),
         },
         PaletteItem {
             id: "toggle_profile".into(),
-            label: "Toggle Profile".into(),
+            label: "Draft or final preview".into(),
             subtitle: "Switch the preview between Final (full quality) and Draft (fast)".into(),
         },
         PaletteItem {
             id: "browse_snapshots".into(),
-            label: "Saved Versions\u{2026}".into(),
+            label: "Saved versions\u{2026}".into(),
             subtitle: "Local backups saved automatically every time you save".into(),
         },
         PaletteItem {
             id: "browse_history".into(),
-            label: "Online Change History\u{2026}".into(),
-            subtitle: "Synced history of earlier versions and what changed".into(),
+            label: "Online change history\u{2026}".into(),
+            subtitle: "Backed-up history of earlier versions and what changed".into(),
         },
         PaletteItem {
             id: "settings".into(),
@@ -391,42 +391,42 @@ pub fn default_commands() -> Vec<PaletteItem> {
         },
         PaletteItem {
             id: "toggle_preview".into(),
-            label: "Toggle Preview".into(),
+            label: "Show or hide the preview".into(),
             subtitle: "Show or hide the live preview pane".into(),
         },
         PaletteItem {
             id: "show_in_preview".into(),
-            label: "Show Cursor in Preview".into(),
+            label: "Show cursor in preview".into(),
             subtitle: "Scroll the preview to the cursor's spot (or Ctrl+click in the text)".into(),
         },
         PaletteItem {
             id: "toggle_sidebar".into(),
-            label: "Toggle Sidebar".into(),
+            label: "Show or hide the sidebar".into(),
             subtitle: "Show or hide the sidebar".into(),
         },
         PaletteItem {
             id: "template".into(),
-            label: "New from Template…".into(),
+            label: "New from template…".into(),
             subtitle: "Choose a document template".into(),
         },
         PaletteItem {
             id: "insert_poem".into(),
-            label: "Insert Poem".into(),
+            label: "Insert poem".into(),
             subtitle: "A titled poem with stanzas, set with verseatile".into(),
         },
         PaletteItem {
             id: "insert_verse_quote".into(),
-            label: "Insert Verse Quotation".into(),
+            label: "Insert verse quotation".into(),
             subtitle: "Quote lines of verse in a block quote, keeping their line breaks".into(),
         },
         PaletteItem {
             id: "help".into(),
-            label: "Help & Shortcuts".into(),
+            label: "Help & shortcuts".into(),
             subtitle: "Open the help window (Ctrl+?)".into(),
         },
         PaletteItem {
             id: "focus_mode".into(),
-            label: "Toggle Focus Mode".into(),
+            label: "Focus mode on or off".into(),
             subtitle: "Dim the sidebar for distraction-free writing".into(),
         },
     ]

@@ -99,19 +99,19 @@ settings-advanced-title = Advanced
 settings-simultaneous-imports-title = Files to import at once
 settings-simultaneous-imports-subtitle = When you import a whole folder, how many documents Zerkalo works on together
 
-## Keyboard Shortcuts
+## Keyboard shortcuts
 
-settings-keyboard-shortcuts-title = Keyboard Shortcuts
+settings-keyboard-shortcuts-title = Keyboard shortcuts
 settings-shortcut-bindings-title = Shortcut bindings
 settings-shortcut-bindings-subtitle = Customize any shortcut by editing a text file
-settings-open-file-button = Open File
+settings-open-file-button = Open file
 settings-open-file-failed-heading = Couldn't open that file
 settings-open-file-failed-body = You can open it yourself at:
     { $path }
 
-## Backup & Sync
+## Backup
 
-settings-backup-sync-title = Backup & Sync
+settings-backup-sync-title = Backup
 settings-backup-sync-description = Sign in with GitHub to keep a private online copy of your writing.
 settings-account-title = Account
 settings-connected = Connected

@@ -9,7 +9,7 @@ use super::*;
 /// the cursor ends up at the very end of the document, every tag and mark is
 /// gone, and — worst — the emptied view clamps its scroll position to zero, so
 /// the writer finds themselves looking at line 1 of a document they were
-/// halfway down. Whole-text rewrites come from Replace All, restoring a
+/// halfway down. Whole-text rewrites come from Replace all, restoring a
 /// snapshot, applying a style, a changed file on disk and more, so all of them
 /// go through here. Everything outside the changed stretch keeps its place;
 /// a cursor inside it lands at the same distance into the new text.

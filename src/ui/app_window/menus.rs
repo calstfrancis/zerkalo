@@ -105,7 +105,7 @@ pub(super) fn save_active(
 }
 
 /// Application-level rows: Settings, Help, Setup, Backup Remotes, About,
-/// Writing Stats, Export, Print, Font Management.
+/// Writing stats, Export, Print, Font Management.
 pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     // ── Compile/Preview toggle button ───────────────────────────────────
     // Wired after preview_outer is created (see below, search "ctx.preview_vis_holder.borrow_mut")
@@ -262,7 +262,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         HelpWindow::new(&window_for_help, editor_for_help.is_cv_mode()).present();
     });
 
-    // ── Menu: Keyboard Shortcuts ────────────────────────────────────────
+    // ── Menu: Keyboard shortcuts ────────────────────────────────────────
     // Reads keybindings.toml live, so it's the accurate list even after a
     // rebind — previously only reachable via its own shortcut.
 
@@ -276,7 +276,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         );
     });
 
-    // ── Menu: What Things Do ─────────────────────────────────────────────
+    // ── Menu: What things do ─────────────────────────────────────────────
     // Same F1 overlay as the shortcut — this exists purely so it can be
     // *found*, not just remembered. Before this row, the only way to
     // discover the overlay was already knowing to press F1.
@@ -290,7 +290,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         }
     });
 
-    // ── Menu: Take the Tour ──────────────────────────────────────────────
+    // ── Menu: Take the tour ──────────────────────────────────────────────
     // Replays the first-run guided walkthrough on demand.
 
     let menu_popover_for_tour = ctx.menu_popover.clone();
@@ -302,7 +302,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         }
     });
 
-    // ── Menu: What's New ────────────────────────────────────────────────
+    // ── Menu: What's new ────────────────────────────────────────────────
     // The release-name window only ever appeared on first run and after an
     // upgrade; nothing let a user open it again.
 
@@ -346,7 +346,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         about.present();
     });
 
-    // ── Menu: Writing Stats ─────────────────────────────────────────────
+    // ── Menu: Writing stats ─────────────────────────────────────────────
 
     let window_for_stats = ctx.window.clone();
     let writing_log_for_stats = ctx.writing_log.clone();
@@ -451,7 +451,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
 }
 
 /// Document-level rows: Import PDF, templates, New, Open, Save, Save As,
-/// Snapshots, Export for Web.
+/// Snapshots, Export for web.
 pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     // ── Menu: Import PDF ───────────────────────────────────────────────
 
@@ -462,7 +462,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     menus.menu_import_pdf_item.connect_clicked(move |_| {
         menu_popover_for_pdf.popdown();
         let dialog = gtk4::FileDialog::new();
-        dialog.set_title("Import PDF File");
+        dialog.set_title("Import PDF file");
         let filter = gtk4::FileFilter::new();
         filter.set_name(Some("PDF files (*.pdf)"));
         filter.add_pattern("*.pdf");
@@ -486,7 +486,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         );
     });
 
-    // ── Menu: New from Template ─────────────────────────────────────────
+    // ── Menu: New from template ─────────────────────────────────────────
 
     let window_for_template = ctx.window.clone();
     let editor_for_template = ctx.editor_pane.clone();
@@ -535,7 +535,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         dlg.present();
     });
 
-    // ── Menu: Change Document Style ──────────────────────────────────────
+    // ── Menu: Change document style ──────────────────────────────────────
 
     let window_for_reapply = ctx.window.clone();
     let editor_for_reapply = ctx.editor_pane.clone();
@@ -586,7 +586,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         dlg.present();
     });
 
-    // ── Menu: New Document ──────────────────────────────────────────────
+    // ── Menu: New document ──────────────────────────────────────────────
 
     let window_for_new = ctx.window.clone();
     let editor_for_new = ctx.editor_pane.clone();
@@ -599,7 +599,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         super::super::name_prompt::ask_document_name(
             &window_for_new,
             &work_dir_for_new,
-            "New Document",
+            "New document",
             "Create",
             &suggested,
             move |path| {
@@ -615,7 +615,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         );
     });
 
-    // ── Menu: Open File ─────────────────────────────────────────────────
+    // ── Menu: Open file ─────────────────────────────────────────────────
 
     let window_for_open = ctx.window.clone();
     let editor_for_open_file = ctx.editor_pane.clone();
@@ -623,7 +623,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     menus.menu_open_item.connect_clicked(move |_| {
         menu_popover_for_open.popdown();
         let dialog = gtk4::FileDialog::new();
-        dialog.set_title("Open File");
+        dialog.set_title("Open file");
         let filter = gtk4::FileFilter::new();
         filter.set_name(Some("Typst files (*.typ)"));
         filter.add_pattern("*.typ");
@@ -697,7 +697,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         super::super::name_prompt::ask_document_name(
             &window_for_save_as,
             &dir,
-            "Save As",
+            "Save as",
             "Save",
             &suggested,
             move |path| match crate::error::atomic_write(&path, content.as_bytes()) {
@@ -783,7 +783,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         });
     }
 
-    // ── Menu: File History ────────────────────────────────────────────────
+    // ── Menu: File history ────────────────────────────────────────────────
 
     let window_for_history = ctx.window.clone();
     let editor_for_history = ctx.editor_pane.clone();
@@ -797,7 +797,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         show_file_history_window(&window_for_history, &root_for_history, &path);
     });
 
-    // ── Menu: Reference Manager ──────────────────────────────────────────
+    // ── Menu: Reference manager ──────────────────────────────────────────
 
     let window_for_refs = ctx.window.clone();
     let ref_manager_for_menu = ctx.ref_manager.clone();
@@ -807,7 +807,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         show_ref_manager_window(&window_for_refs, &ref_manager_for_menu);
     });
 
-    // ── Menu: Dependency Graph ───────────────────────────────────────────
+    // ── Menu: Dependency graph ───────────────────────────────────────────
 
     let window_for_depgraph = ctx.window.clone();
     let dep_graph_for_menu = ctx.dep_graph.clone();
@@ -817,7 +817,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         show_dep_graph_window(&window_for_depgraph, &dep_graph_for_menu);
     });
 
-    // ── Menu: Insert Table ───────────────────────────────────────────────
+    // ── Menu: Insert table ───────────────────────────────────────────────
 
     let window_for_table = ctx.window.clone();
     let editor_for_table = ctx.editor_pane.clone();
@@ -851,7 +851,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         ctx.toast_overlay.say(t);
     }
 
-    // ── Menu: Export for Web ────────────────────────────────────────────
+    // ── Menu: Export for web ────────────────────────────────────────────
     {
         let ep = ctx.editor_pane.clone();
         let win = ctx.window.clone();
@@ -863,7 +863,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                 return;
             };
             let dialog = gtk4::FileDialog::builder()
-                .title("Export for Web")
+                .title("Export for web")
                 .modal(true)
                 .initial_name(
                     input_path
@@ -904,7 +904,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let config_for_sync = ctx.current_config.clone();
     let project_root_for_sync_fallback = ctx.project_root.clone();
 
-    // ── Get Latest from GitHub ──────────────────────────────────────────
+    // ── Get latest from GitHub ──────────────────────────────────────────
     // For sitting down at another computer: bring everything backed up online
     // down to this one, sending nothing back.
     {
@@ -1002,7 +1002,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            let t = adw::Toast::new(&format!("Sync stopped — couldn't save: {names}"));
+            let t = adw::Toast::new(&format!("Backup stopped — couldn't save: {names}"));
             t.set_timeout(6);
             toast_for_sync_closure.say(t);
             return;

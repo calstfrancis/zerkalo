@@ -113,8 +113,8 @@ pub(super) fn build_format_bar() -> FormatBar {
     let line_numbers_btn = ToggleButton::with_label("#");
     line_numbers_btn.add_css_class("flat");
     line_numbers_btn.add_css_class("caption");
-    line_numbers_btn.set_tooltip_text(Some("Toggle line numbers"));
-    line_numbers_btn.update_property(&[gtk4::accessible::Property::Label("Toggle line numbers")]);
+    line_numbers_btn.set_tooltip_text(Some("Show or hide line numbers"));
+    line_numbers_btn.update_property(&[gtk4::accessible::Property::Label("Line numbers")]);
     format_bar.append(&line_numbers_btn);
 
     let fb_sep3b = Separator::new(Orientation::Vertical);
@@ -282,7 +282,7 @@ pub(super) fn build_format_bar() -> FormatBar {
     cv_style_popover_box.set_margin_bottom(4);
     cv_style_popover_box.set_margin_start(4);
     cv_style_popover_box.set_margin_end(4);
-    // Descriptions mirror the CV presets in the "New from Template" gallery
+    // Descriptions mirror the CV presets in the "New from template" gallery
     // (see TEMPLATE_PRESETS in template_dialog.rs) so switching style here
     // carries the same explanation as picking it there.
     const CV_STYLE_DESCRIPTIONS: &[(&str, &str)] = &[
