@@ -134,7 +134,7 @@ settings-run-button = Run…
 
 settings-page-general = General
 settings-page-editor = Editor
-settings-page-extras = References & Spelling
+settings-page-extras = Writing aids
 
 ## Save-time validation notices
 

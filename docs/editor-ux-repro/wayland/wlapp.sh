@@ -10,7 +10,7 @@ mkdir -p $XDG_CONFIG_HOME $XDG_DATA_HOME/zerkalo $XDG_CACHE_HOME
 printf '[user]\n\tname = T\n\temail = t@example.com\n' > $H/.gitconfig
 W=$H/Documents/Zerkalo; mkdir -p $W
 python3 $S/mkdoc.py $W/main.typ
-git -C $W init -q; git -C $W add -A; git -C $W -c user.name=T -c user.email=t@e.com commit -q -m i; git -C $W remote add origin https://example.com/x.git
+git -C $W init -q; git -C $W add -A; git -C $W -c user.name=T -c user.email=t@e.com commit -q -m i; [ -n "${NOREMOTE:-}" ] || git -C $W remote add origin https://example.com/x.git
 echo -n "${ZVER:-$(grep "^version" Cargo.toml | head -1 | sed "s/version = \"\(.*\)\"/\1/")}" > $XDG_DATA_HOME/zerkalo/.welcome_version
 unset DISPLAY
 export WAYLAND_DISPLAY=zk-test-$$
@@ -28,6 +28,14 @@ else
 fi
 sleep 30
 W=$W python3 $S/wl_drive.py "$STEPS_FILE"
+if [ -n "${STEPS2:-}" ]; then
+  # relaunch: same config and data, a fresh process
+  kill $AP 2>/dev/null; pkill -P $AP 2>/dev/null; sleep 2
+  GDK_BACKEND=wayland ${ZBIN:-./target/release/zerkalo} > $S/app2.log 2>&1 & AP=$!
+  sleep 30
+  STEPS_FILE2="$STEPS2"
+  W=$W python3 $S/wl_drive.py "$STEPS_FILE2"
+fi
 kill $AP 2>/dev/null; pkill -P $AP 2>/dev/null; sleep 1
 kill $SP 2>/dev/null; sleep 2
 rm -rf $H

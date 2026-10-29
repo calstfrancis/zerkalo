@@ -21,3 +21,5 @@ org.gnome.Platform//50 runtime. `ZBIN=`/`ZBINDIR=` point at another build,
 - `wl_menu.py` — right-click menus dismissed every way, cursor far away.
 
 Findings (2026-10-08): see EDITOR-UX-PLAN.md Phase 4.
+- `wl_wizard_close.py` + `wl_wizard_relaunch.py` — setup wizard closed with its window X, then relaunched; must not reappear:
+      NOREMOTE=1 STEPS2=$PWD/wl_wizard_relaunch.py dbus-run-session -- ./wlapp.sh wl_wizard_close.py

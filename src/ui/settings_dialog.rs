@@ -71,7 +71,7 @@ impl SettingsDialog {
             .title(tr("settings-window-title"))
             .transient_for(parent)
             .modal(true)
-            .default_width(560)
+            .default_width(700)
             .default_height(700)
             .width_request(420)
             .height_request(400)
@@ -773,11 +773,11 @@ impl SettingsDialog {
         ));
         let after_update_row = combo(
             "After an update",
-            "What happens the first time you open a new version",
+            "What happens the first time you open a new version of Zerkalo",
             &[
-                "Open the what's new window",
-                "Leave a note in the status bar",
-                "Say nothing",
+                "What's new window",
+                "Status bar note",
+                "Nothing",
             ],
             match cf.after_update {
                 AfterUpdate::Window => 0,
@@ -786,9 +786,9 @@ impl SettingsDialog {
             },
         );
         let arriving_row = combo(
-            "When newer writing arrives from your online backup",
-            "What's on screen never changes without you knowing. What arrived is always kept as a saved version first",
-            &["Ask me first", "Update my open documents"],
+            "Newer writing from your backup",
+            "What's on screen never changes without you knowing. Whatever arrives is always kept as a saved version first",
+            &["Ask me first", "Update them"],
             match cf.arriving_writing {
                 ArrivingWriting::Ask => 0,
                 ArrivingWriting::Update => 1,
@@ -828,7 +828,7 @@ impl SettingsDialog {
         let counters_row = combo(
             "Numbers in the status bar",
             "Line and column, and word counts",
-            &["Change as I type", "Change when I pause", "Hide them"],
+            &["As I type", "When I pause", "Hidden"],
             match cf.counters {
                 CounterTiming::WhileTyping => 0,
                 CounterTiming::WhenPaused => 1,
@@ -839,9 +839,9 @@ impl SettingsDialog {
             "Spelling",
             "The word you are still writing is never underlined. F7 checks everything now",
             &[
-                "Underline as I type",
-                "Underline when I leave a paragraph",
-                "Only when I ask",
+                "As I type",
+                "After each paragraph",
+                "Only when asked",
             ],
             match cf.spelling {
                 SpellTiming::AsIType => 0,
