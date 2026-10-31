@@ -465,6 +465,34 @@ impl AppWindow {
         draft_toggle.set_visible(false);
         editor_pane.status_bar_insert_after_goal(&draft_toggle);
 
+        {
+            let label = gtk4::Label::new(Some("writing history"));
+            label.add_css_class("caption");
+            let btn = Button::new();
+            btn.set_child(Some(&label));
+            btn.add_css_class("flat");
+            btn.add_css_class("status-toggle");
+            btn.set_tooltip_text(Some(
+                "Writing history — saves a file listing every saved version of your \
+                 writing, with the date and exactly what changed. Hand it to a teacher \
+                 to show how your writing grew over time.\n\nIt only goes back as far \
+                 as your first backup.",
+            ));
+            btn.update_property(&[gtk4::accessible::Property::Label(
+                "Save writing history, a record of how this was written",
+            )]);
+            let (win, toasts, root, ep) = (
+                window.clone(),
+                toast_overlay.clone(),
+                project_root.clone(),
+                editor_pane.clone(),
+            );
+            btn.connect_clicked(move |_| {
+                super::history_export::run(&win, &toasts, &root, ep.get_active_path());
+            });
+            editor_pane.status_bar_insert_after_safety(&btn);
+        }
+
         editor_pane.set_completion_picks(proj_cfg.completion_picks.clone());
 
         // The header held twelve controls, mixing six text buttons with six
