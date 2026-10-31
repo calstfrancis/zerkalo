@@ -3,6 +3,29 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.56.0] "Open Ledger" — 2026-10-31 — Show how you wrote it
+
+A record of how your writing grew, to give a teacher who asks for proof you wrote it yourself.
+
+### Added
+
+- **Writing history.** A "writing history" button in the status bar (also ☰ → Export & print, and Ctrl+K) opens a window with the whole story of a project: every saved version with its date and exactly what changed, the stretches of time you spent typing, and any larger text you pasted in. Choose the whole project or just one document, and read it "In words" (what each version added, as plain text) or as "Exact changes" (every line, added in green and taken out in red).
+- **Save it as a text file or a PDF,** or copy it. Put your name and course at the top; Zerkalo remembers them.
+- **A list of versions and a chart** of lines written each day beside the record; click a version to jump to it.
+- **"How to check it".** The record carries each version's id, the command that lists the same ids from the project folder, and — for a GitHub backup — the page where GitHub shows when each version reached it.
+- **Back up now** from the window, when your latest changes are not yet in the record.
+- **A private record of typing.** Zerkalo now keeps the times of your writing sessions and the size of anything pasted in — only times and amounts, never the text — on your computer, and adds them to the history.
+
+### Fixed
+
+- **The library now fills in after a sync.** Documents and projects that arrived from another device appeared only after restarting Zerkalo. They now show up within seconds of the sync, with their labels and projects.
+- **Settings → Comfort choices read in full.** Drop-down choices and the page tabs were cut off with "…"; they are shorter and the window is wider.
+- **The word count window and Recent messages no longer squeeze words into a few letters per line.** Word count is a roomier window with the number first; Recent messages ("Things Zerkalo has told you") shows each message with its time.
+
+### Changed
+
+- **Zerkalo backs up every 5 minutes** while there are changes (was 12), so a history has finer steps. Still silent unless a backup fails.
+
 ## [0.55.0] "Level Ground" — 2026-10-28 — A calmer, more predictable Zerkalo
 
 Zerkalo now does only what you ask, says only what you need, and says it the same way every time. New Settings → Comfort page gathers the individual controls; nothing is an "autism mode" and nothing nags.

@@ -36,6 +36,7 @@
       <li>Import from Word, ODT, Markdown, LaTeX, HTML, EPUB, RTF, or PDF, previewed before anything is written — Word, ODT and Markdown are converted by Zerkalo itself with nothing to install; drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search; a .docx with Word's track changes turns them into reviewable suggested edits instead of silently accepting or dropping them</li>
       <li>Insert images from anywhere — the picture is copied into an assets folder beside the document, so it keeps working if the original moves</li>
       <li>Insert Table — set row/column count, per-cell text, per-column alignment, an optional header row, and per-cell colspan/rowspan, then generate a complete Typst table block at the cursor</li>
+      <li>Writing history — a record of how a project was written, to show a teacher: every saved version with its date and what changed, your typing sessions and any larger text pasted in, readable in plain words or line by line and saved as a text file or PDF with instructions for checking it against the project's real history</li>
       <li>Autosave — the document is saved a few seconds after you stop typing and whenever you switch away, compile, export or quit; toggle it in the status bar</li>
       <li>Export to PDF, HTML, Word (a version for InDesign with real footnotes and named styles, and one for Canva with endnotes), LaTeX, or EPUB into any folder you choose, optionally opening the result when done (PDF and EPUB in Pereplyot when installed); Ctrl+Shift+E for instant PDF export</li>
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles; in footnote styles, several citations in a row get one note each (marked ¹,²,³) or one combined note as the style specifies</li>
@@ -86,6 +87,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.56.0" date="2026-10-31">
+      <description>
+        <p>0.56.0 "Open Ledger" — show how you wrote it. A "writing history" button in the status bar opens a record of every saved version with its date and what changed, your typing sessions, and any larger text pasted in, readable in plain words or line by line, to save as a text file or PDF for a teacher, with your name and course on top and instructions for checking it against the project's real history. Documents that arrive from another device now appear in the library after a sync without a restart, Comfort settings and the word count window read in full, and Zerkalo backs up every 5 minutes while there are changes.</p>
+      </description>
+    </release>
     <release version="0.55.0" date="2026-10-28">
       <description>
         <p>0.55.0 "Level Ground" — a calmer, more predictable Zerkalo. Ctrl+Shift+P updates the preview instead of hiding it, Ctrl+S saves as safely as the menu does, and shortcuts named on screen follow your keybindings. Nothing announces a backup or an autosave that worked, an update leaves a note in the status bar instead of a window, newer writing from your online backup asks before it changes what is on screen, and every message stays long enough to read and can be read again. Backing up, saved versions and the preview have one name each, labels are in sentence case, and switches say whether they are on. Settings → Comfort gathers the choices: reduced movement, a steady cursor, quiet problem colour, calmer status-bar numbers, spelling that leaves the word you are writing alone, a "where you left off" line, notes for next time, and an optional session clock.</p>
