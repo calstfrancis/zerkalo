@@ -1,5 +1,5 @@
 //! A private record, kept on this computer, of when writing happened in a
-//! project: the stretches of typing, and any text pasted in. It exists so the
+//! document: the stretches of typing, and any text pasted in. It exists so the
 //! writing history (`writing_history`) can show more than saved versions —
 //! how long someone actually wrote, and how much of the text was typed rather
 //! than pasted.
@@ -8,6 +8,7 @@
 //! project, written about every half minute while writing.
 
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Duration, FixedOffset, Local};
@@ -66,15 +67,15 @@ pub struct ActivityLog {
 }
 
 impl ActivityLog {
-    pub fn load(project: &Path) -> Self {
-        std::fs::read_to_string(log_path(project))
+    pub fn load(document: &Path) -> Self {
+        std::fs::read_to_string(log_path(document))
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default()
     }
 
-    fn save(&self, project: &Path) {
-        let path = log_path(project);
+    fn save(&self, document: &Path) {
+        let path = log_path(document);
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).ok();
         }
@@ -132,8 +133,8 @@ impl ActivityLog {
     }
 }
 
-fn log_path(project: &Path) -> PathBuf {
-    let canonical = std::fs::canonicalize(project).unwrap_or_else(|_| project.to_path_buf());
+fn log_path(document: &Path) -> PathBuf {
+    let canonical = std::fs::canonicalize(document).unwrap_or_else(|_| document.to_path_buf());
     crate::config::zerkalo_data_dir()
         .join("activity")
         .join(format!("{}.json", crate::auto_save::path_key(&canonical)))
@@ -141,31 +142,32 @@ fn log_path(project: &Path) -> PathBuf {
 
 struct Recorder {
     project: Option<PathBuf>,
-    log: ActivityLog,
-    dirty: bool,
+    logs: HashMap<PathBuf, ActivityLog>,
+    dirty: HashSet<PathBuf>,
     pasting: bool,
 }
 
 thread_local! {
-    static RECORDER: RefCell<Recorder> = const { RefCell::new(Recorder {
+    static RECORDER: RefCell<Recorder> = RefCell::new(Recorder {
         project: None,
-        log: ActivityLog { sessions: Vec::new(), pastes: Vec::new() },
-        dirty: false,
+        logs: HashMap::new(),
+        dirty: HashSet::new(),
         pasting: false,
-    }) };
+    });
 }
 
 fn now() -> DateTime<FixedOffset> {
     Local::now().fixed_offset()
 }
 
-/// Starts recording for `project`, picking up what earlier sessions kept.
+/// Starts recording in `project`. Each document keeps its own record, picked
+/// up from earlier sessions the first time it is written in.
 pub fn begin(project: &Path) {
     RECORDER.with(|r| {
         let mut r = r.borrow_mut();
-        r.log = ActivityLog::load(project);
         r.project = Some(project.to_path_buf());
-        r.dirty = false;
+        r.logs.clear();
+        r.dirty.clear();
     });
 }
 
@@ -186,36 +188,39 @@ pub fn inserted(file: &Path, text: &str) {
             return;
         }
         let chars = text.chars().count();
-        if r.pasting {
-            let rel = r
-                .project
-                .as_deref()
-                .and_then(|p| file.strip_prefix(p).ok())
-                .unwrap_or(file)
-                .to_string_lossy()
-                .into_owned();
-            r.log
-                .pasted_at(now(), rel, chars, text.split_whitespace().count());
-        } else if chars <= 4 {
-            r.log.typed_at(now(), chars);
-        } else {
+        let pasting = r.pasting;
+        if !pasting && chars > 4 {
             return;
         }
-        r.dirty = true;
+        let rel = r
+            .project
+            .as_deref()
+            .and_then(|p| file.strip_prefix(p).ok())
+            .unwrap_or(file)
+            .to_string_lossy()
+            .into_owned();
+        let log = r
+            .logs
+            .entry(file.to_path_buf())
+            .or_insert_with(|| ActivityLog::load(file));
+        if pasting {
+            log.pasted_at(now(), rel, chars, text.split_whitespace().count());
+        } else {
+            log.typed_at(now(), chars);
+        }
+        r.dirty.insert(file.to_path_buf());
     });
 }
 
-/// Writes the record out if anything changed since the last time.
+/// Writes out the record of every document that changed since the last time.
 pub fn flush() {
     RECORDER.with(|r| {
         let mut r = r.borrow_mut();
-        if !r.dirty {
-            return;
+        for file in std::mem::take(&mut r.dirty) {
+            if let Some(log) = r.logs.get(&file) {
+                log.save(&file);
+            }
         }
-        if let Some(p) = r.project.clone() {
-            r.log.save(&p);
-        }
-        r.dirty = false;
     });
 }
 

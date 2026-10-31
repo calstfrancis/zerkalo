@@ -478,8 +478,8 @@ impl AppWindow {
             btn.add_css_class("flat");
             btn.add_css_class("status-toggle");
             btn.set_tooltip_text(Some(
-                "Writing history — saves a file listing every saved version of your \
-                 writing, with the date and exactly what changed. Hand it to a teacher \
+                "Writing history — saves a file listing every saved version of the \
+                 document you have open, with the date and exactly what changed. Hand it to a teacher \
                  to show how your writing grew over time.\n\nIt only goes back as far \
                  as your first backup.",
             ));

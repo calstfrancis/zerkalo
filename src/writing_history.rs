@@ -117,7 +117,12 @@ pub fn build(
         return Err(NO_HISTORY.to_string());
     }
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
-    let versions = parse(&text);
+    let mut versions = parse(&text);
+    if only.is_some() {
+        for v in &mut versions {
+            v.message.clear();
+        }
+    }
     if versions.is_empty() {
         return Err(NO_HISTORY.to_string());
     }
@@ -164,7 +169,10 @@ pub fn build(
         removed: versions.iter().map(|v| v.removed).sum(),
         unsaved_files: crate::git_sync::changed_files(repo)
             .iter()
-            .filter(|n| n.ends_with(".typ") || n.ends_with(".bib"))
+            .filter(|n| match only {
+                Some(f) => Path::new(n) == f.strip_prefix(repo).unwrap_or(f),
+                None => n.ends_with(".typ") || n.ends_with(".bib"),
+            })
             .count(),
     })
 }
@@ -639,6 +647,30 @@ mod tests {
         assert!(!text.contains("x.toml"));
         assert_eq!(h.items.len(), 2);
         assert!(text.contains("Latest version id: "));
+    }
+
+    #[test]
+    fn one_documents_record_leaves_out_every_other_document() {
+        let dir = project();
+        let p = dir.path();
+        std::fs::write(
+            p.join("other.typ"),
+            "Secret other text.
+",
+        )
+        .unwrap();
+        git(p, &["add", "."], "2026-03-05T10:00:00+00:00");
+        git(
+            p,
+            &["commit", "-q", "-m", "Auto-save: other.typ"],
+            "2026-03-05T10:00:00+00:00",
+        );
+        let h = build(p, Some(&p.join("essay.typ")), "today", &Extras::default()).unwrap();
+        for text in [&h.text, &h.plain] {
+            assert!(!text.contains("other"), "{text}");
+            assert!(!text.contains("Secret"), "{text}");
+        }
+        assert_eq!(h.items.len(), 2);
     }
 
     #[test]

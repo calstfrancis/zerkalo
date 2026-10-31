@@ -3,13 +3,19 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.56.1] "Single Page" — 2026-10-31 — Writing history is about one document
+
+### Fixed
+
+- **The writing history covers only the document you have open.** It used to list the versions of every file in the project, and the typing sessions and pastes of all of them. Typing sessions are now kept per document, the backup notes (which named other files) are left out, and the "latest changes haven't been backed up" notice counts only this document. Typing records from 0.56.0 were project-wide and are not carried over; saved versions are unaffected.
+
 ## [0.56.0] "Open Ledger" — 2026-10-31 — Show how you wrote it
 
 A record of how your writing grew, to give a teacher who asks for proof you wrote it yourself.
 
 ### Added
 
-- **Writing history.** A "writing history" button in the status bar (also ☰ → Export & print, and Ctrl+K) opens a window with the whole story of a project: every saved version with its date and exactly what changed, the stretches of time you spent typing, and any larger text you pasted in. Choose the whole project or just one document, and read it "In words" (what each version added, as plain text) or as "Exact changes" (every line, added in green and taken out in red).
+- **Writing history.** A "writing history" button in the status bar (also ☰ → Export & print, and Ctrl+K) opens a window with the story of the document you have open: every saved version with its date and exactly what changed, the stretches of time you spent typing, and any larger text you pasted in. Read it "In words" (what each version added, as plain text) or as "Exact changes" (every line, added in green and taken out in red).
 - **Save it as a text file or a PDF,** or copy it. Put your name and course at the top; Zerkalo remembers them.
 - **A list of versions and a chart** of lines written each day beside the record; click a version to jump to it.
 - **"How to check it".** The record carries each version's id, the command that lists the same ids from the project folder, and — for a GitHub backup — the page where GitHub shows when each version reached it.

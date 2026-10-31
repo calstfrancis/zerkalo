@@ -1,7 +1,6 @@
-//! The writing history window: the record of how a project was written, to
+//! The writing history window: the record of how one document was written, to
 //! read on screen and save as a file for a teacher. The text itself is built in
-//! `writing_history`; this shows it, lets the person pick the whole project or
-//! one document and a plain or exact reading, adds their name and course, and
+//! `writing_history`; this shows it, lets the person pick a plain or exact reading, adds their name and course, and
 //! saves it as text or PDF.
 
 use std::cell::{Cell, RefCell};
@@ -25,6 +24,12 @@ pub fn run(
     active_file: Option<PathBuf>,
     backup: Rc<dyn Fn()>,
 ) {
+    let Some(active_file) = active_file else {
+        toasts.say(adw::Toast::new(
+            "Open the document you want a writing history for first.",
+        ));
+        return;
+    };
     let win = adw::Window::builder()
         .title("Writing history")
         .default_width(980)
@@ -42,17 +47,6 @@ pub fn run(
     sidebar_toggle.set_active(true);
     sidebar_toggle.set_tooltip_text(Some("Show or hide the list of versions"));
     header.pack_start(&sidebar_toggle);
-
-    let whole = gtk4::ToggleButton::with_label("Whole project");
-    let single = gtk4::ToggleButton::with_label("This document");
-    single.set_group(Some(&whole));
-    whole.set_active(true);
-    let scope = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    scope.add_css_class("linked");
-    scope.append(&whole);
-    scope.append(&single);
-    scope.set_visible(active_file.is_some());
-    header.set_title_widget(Some(&scope));
 
     let save_menu = gtk4::MenuButton::new();
     save_menu.set_label("Save…");
@@ -335,7 +329,7 @@ pub fn run(
             );
             let (save_menu, copy_btn) = (save_menu.clone(), copy_btn.clone());
             let (history, generation, root) = (history.clone(), generation.clone(), root.clone());
-            let (single, active_file) = (single.clone(), active_file.clone());
+            let active_file = active_file.clone();
             let (author, course) = (author.clone(), course.clone());
             let (days, chart, chart_range, list) = (
                 days.clone(),
@@ -352,16 +346,12 @@ pub fn run(
                 copy_btn.set_sensitive(false);
                 summary.set_text("");
                 notice.set_revealed(false);
-                let only = if single.is_active() {
-                    active_file.clone()
-                } else {
-                    None
-                };
+                let only = Some(active_file.clone());
                 crate::activity::flush();
                 let extras = crate::writing_history::Extras {
                     author: author.text().to_string(),
                     course: course.text().to_string(),
-                    activity: crate::activity::ActivityLog::load(&root),
+                    activity: crate::activity::ActivityLog::load(&active_file),
                 };
                 let (root, today) = (
                     root.clone(),
@@ -430,10 +420,6 @@ pub fn run(
             })
         };
 
-    {
-        let load = load.clone();
-        whole.connect_toggled(move |_| load());
-    }
     {
         let show = show.clone();
         plain_btn.connect_toggled(move |_| show());
@@ -510,17 +496,12 @@ pub fn run(
     }
 
     let file_stem = {
-        let (root, active_file, single) = (root.clone(), active_file.clone(), single.clone());
+        let active_file = active_file.clone();
         move || -> String {
-            if single.is_active() {
-                active_file.as_deref()
-            } else {
-                None
-            }
-            .and_then(|f| f.file_stem())
-            .or_else(|| root.file_name())
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "project".into())
+            active_file
+                .file_stem()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "project".into())
         }
     };
     for (button, pdf) in [(&save_text, false), (&save_pdf, true)] {

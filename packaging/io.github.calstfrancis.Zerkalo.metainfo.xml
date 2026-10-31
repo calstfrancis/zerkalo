@@ -87,6 +87,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.56.1" date="2026-10-31">
+      <description>
+        <p>0.56.1 "Single Page" — the writing history now covers only the document you have open: its versions, typing sessions and pasted text, with nothing from other files in the project.</p>
+      </description>
+    </release>
     <release version="0.56.0" date="2026-10-31">
       <description>
         <p>0.56.0 "Open Ledger" — show how you wrote it. A "writing history" button in the status bar opens a record of every saved version with its date and what changed, your typing sessions, and any larger text pasted in, readable in plain words or line by line, to save as a text file or PDF for a teacher, with your name and course on top and instructions for checking it against the project's real history. Documents that arrive from another device now appear in the library after a sync without a restart, Comfort settings and the word count window read in full, and Zerkalo backs up every 5 minutes while there are changes.</p>
