@@ -261,7 +261,7 @@ pub(super) fn build_status_bar() -> StatusBar {
     wc_btn.set_margin_end(4);
     wc_btn.set_margin_top(1);
     wc_btn.set_margin_bottom(1);
-    wc_btn.set_tooltip_text(Some("Document statistics"));
+    wc_btn.set_tooltip_text(Some("Word count, and more"));
 
     let cite_count_label = Label::new(Some("citations in count"));
     cite_count_label.add_css_class("dim-label");

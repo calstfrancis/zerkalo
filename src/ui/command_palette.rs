@@ -350,6 +350,11 @@ pub fn default_commands() -> Vec<PaletteItem> {
             subtitle: "Underline every misspelled word in the open documents (F7)".into(),
         },
         PaletteItem {
+            id: "writing_history".into(),
+            label: "Export writing history…".into(),
+            subtitle: "A file showing each saved version of your writing, to show a teacher how it grew".into(),
+        },
+        PaletteItem {
             id: "recent_messages".into(),
             label: "Recent messages".into(),
             subtitle: "Read again anything Zerkalo said that has gone from the screen".into(),

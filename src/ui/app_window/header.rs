@@ -16,6 +16,7 @@ pub(super) struct Menus {
     pub(super) menu_whats_new_item: Button,
     pub(super) menu_export_item: Button,
     pub(super) menu_export_web_item: Button,
+    pub(super) menu_writing_history_item: Button,
     pub(super) menu_help_item: Button,
     pub(super) menu_shortcuts_item: Button,
     pub(super) menu_what_things_do_item: Button,
@@ -218,6 +219,7 @@ pub(super) fn build_header() -> HeaderWidgets {
         menu_about_item,
         menu_export_item,
         menu_export_web_item,
+        menu_writing_history_item,
         menu_help_item,
         menu_shortcuts_item,
         menu_what_things_do_item,
@@ -315,6 +317,7 @@ pub(super) fn build_header() -> HeaderWidgets {
         &[
             menu_export_item.clone(),
             menu_export_web_item.clone(),
+            menu_writing_history_item.clone(),
             menu_print_item.clone(),
         ],
     );
@@ -385,6 +388,7 @@ pub(super) fn build_header() -> HeaderWidgets {
             menu_about_item,
             menu_export_item,
             menu_export_web_item,
+            menu_writing_history_item,
             menu_help_item,
             menu_shortcuts_item,
             menu_what_things_do_item,

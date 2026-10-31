@@ -2832,6 +2832,12 @@ impl AppWindow {
                         "get_latest" => targets_for_pal.get_latest.emit_clicked(),
                         "recover" => targets_for_pal.recover.emit_clicked(),
                         "recent_messages" => editor_for_pal.show_recent_messages(),
+                        "writing_history" => super::history_export::run(
+                            &window_for_pal,
+                            &toast_for_pal,
+                            &root_for_pal,
+                            editor_for_pal.get_active_path(),
+                        ),
                         "check_spelling" => editor_for_pal.check_spelling_now(),
                         "note_for_next_time" => {
                             if !config_for_pal.borrow().comfort.notes_for_next_time {
@@ -4055,6 +4061,7 @@ struct HamburgerItems {
     menu_recover_item: Button,
     menu_export_item: Button,
     menu_export_web_item: Button,
+    menu_writing_history_item: Button,
     menu_print_item: Button,
     menu_import_item: Button,
     menu_settings_item: Button,
@@ -4121,6 +4128,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         },
         menu_export_item: make_menu_item("Export…", None),
         menu_export_web_item: make_menu_item("Export for web…", None),
+        menu_writing_history_item: make_menu_item("Export writing history…", None),
         // Print and Import aren't in keybindings.toml — they're fixed in the
         // key handler, so a literal is the honest label here.
         menu_print_item: make_menu_item("Print\u{2026}", Some("Ctrl+P")),

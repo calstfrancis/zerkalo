@@ -23,3 +23,4 @@ org.gnome.Platform//50 runtime. `ZBIN=`/`ZBINDIR=` point at another build,
 Findings (2026-10-08): see EDITOR-UX-PLAN.md Phase 4.
 - `wl_wizard_close.py` + `wl_wizard_relaunch.py` — setup wizard closed with its window X, then relaunched; must not reappear:
       NOREMOTE=1 STEPS2=$PWD/wl_wizard_relaunch.py dbus-run-session -- ./wlapp.sh wl_wizard_close.py
+- `XFT_DPI=147456` (1.5x text) before any command above shows how a window copes with larger text.

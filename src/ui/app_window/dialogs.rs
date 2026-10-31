@@ -42,57 +42,83 @@ pub(super) fn show_doc_stats(
     };
 
     let win = adw::Window::new();
-    win.set_title(Some("Document Statistics"));
-    win.set_default_width(360);
-    win.set_resizable(false);
+    win.set_title(Some("Word count"));
+    win.set_default_width(420);
+    win.set_width_request(340);
+    win.set_resizable(true);
     win.set_transient_for(Some(parent));
     win.set_modal(false);
 
-    let make_row = |title: &str, value: &str| {
-        let row = adw::ActionRow::new();
-        row.set_title(title);
-        let lbl = gtk4::Label::new(Some(value));
-        lbl.add_css_class("dim-label");
-        lbl.set_valign(gtk4::Align::Center);
-        row.add_suffix(&lbl);
-        row
+    let thousands = |n: usize| {
+        let digits = n.to_string();
+        let mut out = String::new();
+        for (i, c) in digits.chars().enumerate() {
+            if i > 0 && (digits.len() - i).is_multiple_of(3) {
+                out.push(',');
+            }
+            out.push(c);
+        }
+        out
     };
 
-    let group = adw::PreferencesGroup::new();
-    group.set_margin_start(12);
-    group.set_margin_end(12);
-    group.set_margin_top(12);
-    group.set_margin_bottom(12);
-    group.add(&make_row(
-        "Words",
-        &format!("{words}  ({session_delta} this session)"),
-    ));
-    if crate::word_cites::counts_citations(text) {
-        let note = if cites.is_some() {
-            "Included in the word count"
-        } else {
-            "Not applicable to this citation style"
-        };
-        group.add(&make_row("In-text citations", note));
-    }
-    group.add(&make_row(
-        "Characters",
-        &format!("{chars}  ({chars_with_spaces} with spaces)"),
-    ));
-    group.add(&make_row("Paragraphs", &paragraphs.to_string()));
-    group.add(&make_row("Sentences", &sentences.to_string()));
-    group.add(&make_row("Reading time", &format!("{reading_mins} min")));
+    let page = gtk4::Box::new(Orientation::Vertical, 4);
+    page.set_margin_start(24);
+    page.set_margin_end(24);
+    page.set_margin_top(20);
+    page.set_margin_bottom(24);
 
-    let scroll = gtk4::ScrolledWindow::new();
-    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Never);
-    scroll.set_child(Some(&group));
+    let big = gtk4::Label::new(Some(&thousands(words)));
+    big.add_css_class("title-1");
+    big.set_xalign(0.0);
+    page.append(&big);
+    let big_note = gtk4::Label::new(Some(&format!(
+        "{} · {session_delta} since you opened it",
+        if words == 1 { "word" } else { "words" }
+    )));
+    big_note.add_css_class("dim-label");
+    big_note.set_xalign(0.0);
+    page.append(&big_note);
+
+    let grid = gtk4::Grid::new();
+    grid.set_row_spacing(10);
+    grid.set_column_spacing(24);
+    grid.set_margin_top(18);
+    let mut row = 0;
+    let mut add = |title: &str, value: &str| {
+        let t = gtk4::Label::new(Some(title));
+        t.set_xalign(0.0);
+        t.set_hexpand(true);
+        let v = gtk4::Label::new(Some(value));
+        v.set_xalign(1.0);
+        v.add_css_class("dim-label");
+        v.add_css_class("numeric");
+        grid.attach(&t, 0, row, 1, 1);
+        grid.attach(&v, 1, row, 1, 1);
+        row += 1;
+    };
+    add("Paragraphs", &thousands(paragraphs));
+    add("Sentences", &thousands(sentences));
+    add("Letters, without spaces", &thousands(chars));
+    add("Letters, with spaces", &thousands(chars_with_spaces));
+    add("Time to read", &format!("{reading_mins} min"));
+    if crate::word_cites::counts_citations(text) {
+        add(
+            "Citations in the text",
+            if cites.is_some() {
+                "counted in the words"
+            } else {
+                "not counted"
+            },
+        );
+    }
+    page.append(&grid);
 
     let header = adw::HeaderBar::new();
     header.add_css_class("fond-chrome");
     let toolbar = adw::ToolbarView::new();
     toolbar.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
     toolbar.add_top_bar(&header);
-    toolbar.set_content(Some(&scroll));
+    toolbar.set_content(Some(&page));
     win.set_content(Some(&toolbar));
     win.present();
 }

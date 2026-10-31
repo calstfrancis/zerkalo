@@ -57,6 +57,7 @@ mod user_templates;
 mod web_export;
 mod whats_new;
 mod word_cites;
+mod writing_history;
 mod writing_log;
 mod zotero;
 

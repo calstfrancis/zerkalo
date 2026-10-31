@@ -852,6 +852,19 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         ctx.toast_overlay.say(t);
     }
 
+    // ── Menu: Export writing history ────────────────────────────────────
+    {
+        let pop = ctx.menu_popover.clone();
+        let win = ctx.window.clone();
+        let toast = ctx.toast_overlay.clone();
+        let root = ctx.project_root.clone();
+        let ep = ctx.editor_pane.clone();
+        menus.menu_writing_history_item.connect_clicked(move |_| {
+            pop.popdown();
+            super::super::history_export::run(&win, &toast, &root, ep.get_active_path());
+        });
+    }
+
     // ── Menu: Export for web ────────────────────────────────────────────
     {
         let ep = ctx.editor_pane.clone();

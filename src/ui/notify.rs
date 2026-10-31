@@ -84,48 +84,49 @@ fn remember(text: &str) {
     });
 }
 
-/// The recent messages, newest first, with the time each appeared.
-pub fn recent() -> Vec<(String, String)> {
-    RECENT.with(|r| {
-        r.borrow()
-            .iter()
-            .rev()
-            .map(|(t, m)| (t.format("%H:%M").to_string(), m.clone()))
-            .collect()
-    })
+/// "9:42" or "9:42 pm" — whatever the desktop's own clock shows.
+fn friendly_time(t: &chrono::DateTime<chrono::Local>) -> String {
+    t.format("%-I:%M %p").to_string().to_lowercase()
 }
 
-/// A popover listing the recent messages, anchored on `parent`.
+/// A popover with what Zerkalo has said lately, newest first, so a message
+/// that went by too fast can be read again.
 pub fn show_recent(parent: &impl IsA<gtk4::Widget>) {
     use gtk4::{Box as GtkBox, Label, Orientation, Popover, ScrolledWindow};
 
-    let list = GtkBox::new(Orientation::Vertical, 8);
-    list.set_margin_start(12);
-    list.set_margin_end(12);
-    list.set_margin_top(10);
-    list.set_margin_bottom(10);
-    let heading = Label::new(Some("Recent messages"));
+    let list = GtkBox::new(Orientation::Vertical, 14);
+    list.set_margin_start(18);
+    list.set_margin_end(18);
+    list.set_margin_top(16);
+    list.set_margin_bottom(16);
+    let heading = Label::new(Some("Things Zerkalo has told you"));
     heading.add_css_class("heading");
     heading.set_xalign(0.0);
     list.append(&heading);
-    let items = recent();
+    let items = RECENT.with(|r| r.borrow().iter().rev().cloned().collect::<Vec<_>>());
     if items.is_empty() {
-        let none = Label::new(Some("Nothing has been said yet this time."));
+        let none = Label::new(Some(
+            "Nothing yet. When Zerkalo tells you something, you can read it again here.",
+        ));
         none.add_css_class("dim-label");
         none.set_xalign(0.0);
+        none.set_wrap(true);
+        none.set_width_chars(34);
+        none.set_max_width_chars(44);
         list.append(&none);
     }
     for (time, text) in items {
-        let row = GtkBox::new(Orientation::Horizontal, 10);
-        let when = Label::new(Some(&time));
+        let row = GtkBox::new(Orientation::Vertical, 2);
+        let when = Label::new(Some(&friendly_time(&time)));
         when.add_css_class("dim-label");
         when.add_css_class("caption");
-        when.set_valign(gtk4::Align::Start);
+        when.set_xalign(0.0);
         let msg = Label::new(Some(&text));
         msg.set_wrap(true);
         msg.set_xalign(0.0);
         msg.set_selectable(true);
-        msg.set_max_width_chars(48);
+        msg.set_width_chars(34);
+        msg.set_max_width_chars(44);
         row.append(&when);
         row.append(&msg);
         list.append(&row);
@@ -133,7 +134,8 @@ pub fn show_recent(parent: &impl IsA<gtk4::Widget>) {
     let scroll = ScrolledWindow::new();
     scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
     scroll.set_propagate_natural_height(true);
-    scroll.set_max_content_height(420);
+    scroll.set_propagate_natural_width(true);
+    scroll.set_max_content_height(440);
     scroll.set_child(Some(&list));
 
     let pop = Popover::new();

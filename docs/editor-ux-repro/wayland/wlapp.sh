@@ -7,6 +7,7 @@ cd "$S/../../.."
 H=$(mktemp -d /tmp/zk-wl.XXXXXX)
 export HOME=$H XDG_CONFIG_HOME=$H/.config XDG_DATA_HOME=$H/.local/share XDG_CACHE_HOME=$H/.cache XDG_STATE_HOME=$H/.local/state
 mkdir -p $XDG_CONFIG_HOME $XDG_DATA_HOME/zerkalo $XDG_CACHE_HOME
+if [ -n "${XFT_DPI:-}" ]; then mkdir -p $XDG_CONFIG_HOME/gtk-4.0; printf '[Settings]\ngtk-xft-dpi=%s\n' "$XFT_DPI" > $XDG_CONFIG_HOME/gtk-4.0/settings.ini; fi
 printf '[user]\n\tname = T\n\temail = t@example.com\n' > $H/.gitconfig
 W=$H/Documents/Zerkalo; mkdir -p $W
 python3 $S/mkdoc.py $W/main.typ

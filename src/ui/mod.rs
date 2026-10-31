@@ -20,6 +20,7 @@ pub mod font_manager;
 pub mod github_signin;
 pub mod help_overlay;
 pub mod help_window;
+pub mod history_export;
 pub mod history_panel;
 pub mod last_working;
 pub mod library_window;
