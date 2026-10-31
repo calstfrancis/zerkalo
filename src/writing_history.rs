@@ -28,10 +28,22 @@ struct Version {
     diff: String,
 }
 
+/// The finished file, with the few numbers a window shows beside it.
+pub struct History {
+    pub text: String,
+    pub versions: usize,
+    pub days: usize,
+    pub added: usize,
+    pub removed: usize,
+    /// Files with changes made since the last backup, which are not in the
+    /// history yet.
+    pub unsaved_files: usize,
+}
+
 /// The history of the project at `repo`, or of one file in it when `only` is
 /// given. Folders Zerkalo keeps for itself are left out. The error is a
 /// sentence fit to show to the person.
-pub fn build(repo: &Path, only: Option<&Path>, today: &str) -> Result<String, String> {
+pub fn build(repo: &Path, only: Option<&Path>, today: &str) -> Result<History, String> {
     let format = format!("--format={MARK}%H{SEP}%aI{SEP}%s");
     let mut cmd = git_cmd(repo);
     cmd.args([
@@ -74,13 +86,19 @@ pub fn build(repo: &Path, only: Option<&Path>, today: &str) -> Result<String, St
     let scope = only
         .and_then(|f| f.file_name())
         .map(|n| n.to_string_lossy().into_owned());
-    Ok(render(
-        &name,
-        scope.as_deref(),
-        remote.as_deref(),
-        today,
-        &versions,
-    ))
+    let mut days: Vec<_> = versions.iter().map(day).collect();
+    days.dedup();
+    Ok(History {
+        text: render(&name, scope.as_deref(), remote.as_deref(), today, &versions),
+        versions: versions.len(),
+        days: days.len(),
+        added: versions.iter().map(|v| v.added).sum(),
+        removed: versions.iter().map(|v| v.removed).sum(),
+        unsaved_files: crate::git_sync::changed_files(repo)
+            .iter()
+            .filter(|n| n.ends_with(".typ") || n.ends_with(".bib"))
+            .count(),
+    })
 }
 
 const NO_GIT: &str = "Zerkalo couldn't run git, which keeps the history of your writing.";
@@ -287,7 +305,7 @@ mod tests {
             "2026-03-04T21:30:00+00:00",
         );
 
-        let text = build(p, None, "1 June 2026").unwrap();
+        let text = build(p, None, "1 June 2026").unwrap().text;
         assert!(
             text.contains("Versions:      2, over 2 different days"),
             "{text}"
