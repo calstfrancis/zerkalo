@@ -283,9 +283,12 @@ fn fill(buffer: &gtk4::TextBuffer, text: &str) {
             "version"
         } else if line.starts_with("diff --git") {
             "file"
-        } else if line.starts_with("+++") || line.starts_with("---") {
-            "quiet"
-        } else if line.starts_with("@@") || line.starts_with("index ") || line.starts_with("====") {
+        } else if line.starts_with("+++")
+            || line.starts_with("---")
+            || line.starts_with("@@")
+            || line.starts_with("index ")
+            || line.starts_with("====")
+        {
             "quiet"
         } else if line.starts_with('+') {
             "added"

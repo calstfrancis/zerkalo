@@ -29,6 +29,7 @@ struct Version {
 }
 
 /// The finished file, with the few numbers a window shows beside it.
+#[derive(Debug)]
 pub struct History {
     pub text: String,
     pub versions: usize,
