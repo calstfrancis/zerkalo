@@ -4,6 +4,7 @@
 // anything clearer, and the shape is uniform enough to read at a glance.
 #![allow(clippy::type_complexity)]
 
+mod activity;
 mod assets;
 mod authors;
 mod auto_save;

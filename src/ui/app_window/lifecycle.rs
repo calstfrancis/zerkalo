@@ -381,7 +381,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     // otherwise it's a no-op check every 30s, not a sync. Quiet: failures
     // show a toast, never a blocking dialog, so an offline user isn't
     // interrupted while writing.
-    const AUTO_SYNC_INTERVAL: Duration = Duration::from_secs(12 * 60);
+    const AUTO_SYNC_INTERVAL: Duration = Duration::from_secs(5 * 60);
     let editor_for_autosync = ctx.editor_pane.clone();
     let overlay_for_autosync = ctx.toast_overlay.clone();
     let sync_btn_for_autosync = ctx.sync_btn.clone();
@@ -415,7 +415,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
 
         // Reflect "there's something waiting to back up" on every tick, not
         // just when a sync actually fires below — the badge should light up
-        // the moment a change lands, not 12 minutes later.
+        // the moment a change lands, not 5 minutes later.
         super::sync::refresh_badge(&root, &sync_badge_for_autosync);
         let dirty =
             crate::git_sync::has_remote(&root) && !crate::git_sync::changed_files(&root).is_empty();

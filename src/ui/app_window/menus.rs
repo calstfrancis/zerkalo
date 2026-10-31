@@ -859,9 +859,16 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         let toast = ctx.toast_overlay.clone();
         let root = ctx.project_root.clone();
         let ep = ctx.editor_pane.clone();
+        let backup = super::backup_now(&ctx.sync_btn);
         menus.menu_writing_history_item.connect_clicked(move |_| {
             pop.popdown();
-            super::super::history_export::run(&win, &toast, &root, ep.get_active_path());
+            super::super::history_export::run(
+                &win,
+                &toast,
+                &root,
+                ep.get_active_path(),
+                backup.clone(),
+            );
         });
     }
 

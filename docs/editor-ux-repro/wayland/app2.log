@@ -1,0 +1,11 @@
+[2m2026-10-29T10:35:01.706123Z[0m [32m INFO[0m [2mzerkalo[0m[2m:[0m Zerkalo starting — log: /tmp/zk-wl.yw2QTZ/.local/share/zerkalo/zerkalo.log
+
+(zerkalo:351543): Gtk-WARNING **: 07:35:01.756: Theme parser error: <data>:1:22-23: Junk at end of value for transition
+
+(zerkalo:351543): Gtk-WARNING **: 07:35:01.756: Theme parser error: <data>:1:50-51: Junk at end of value for animation
+
+(zerkalo:351543): Gtk-WARNING **: 07:35:01.756: Theme parser error: <data>:1:96-97: Junk at end of value for transition
+[2m2026-10-29T10:35:04.136564Z[0m [32m INFO[0m [2mzerkalo::ui::app_window[0m[2m:[0m Library DB ready
+[2m2026-10-29T10:35:04.431144Z[0m [32m INFO[0m [2mzerkalo::ui::app_window::lifecycle[0m[2m:[0m tinymist not found — LSP disabled
+[2m2026-10-29T10:35:04.803962Z[0m [32m INFO[0m [2mzerkalo::ui::app_window::lifecycle[0m[2m:[0m pandoc not found — LaTeX/HTML/EPUB/RTF import disabled
+[2m2026-10-29T10:35:04.804092Z[0m [32m INFO[0m [2mzerkalo::ui::app_window::lifecycle[0m[2m:[0m tinymist not found — LSP completions disabled

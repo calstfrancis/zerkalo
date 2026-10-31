@@ -480,13 +480,13 @@ pub(super) fn auto_sync_quiet(
             }
             // Quiet means quiet: a backup that worked says nothing (the status
             // bar's "backed up just now" already does), and one that didn't is
-            // said once, not again every 12 minutes while the person is offline.
+            // said once, not again every 5 minutes while the person is offline.
             if failed {
                 if let Some(overlay) = &overlay {
                     if !QUIET_TROUBLE_TOLD.with(|t| t.replace(true)) {
                         let t = adw::Toast::new(crate::keybindings::shown(
                             "Your work is saved on this computer. The online backup didn't go \
-                             through — Zerkalo keeps trying every 12 minutes, or press the backup \
+                             through — Zerkalo keeps trying every 5 minutes, or press the backup \
                              button ({git_sync}).",
                         ));
                         t.set_timeout(12);

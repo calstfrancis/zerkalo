@@ -26,6 +26,7 @@ use crate::bibliography::BibEntry;
 use crate::lsp::CompletionItem;
 use crate::ui::autopair;
 
+mod activity_wiring;
 mod completion;
 mod context_menu;
 mod counters;
@@ -1876,6 +1877,7 @@ impl EditorPane {
         };
 
         self.wire_modified_and_word_count(&tab, content);
+        activity_wiring::wire(&tab);
         self.wire_cursor_tracking(&tab);
         self.wire_undo_redo_sensitivity(&tab);
         let CitationAutocomplete {

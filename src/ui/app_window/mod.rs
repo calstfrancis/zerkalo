@@ -435,6 +435,11 @@ impl AppWindow {
             });
         }
         preview_pane.set_zoom(config.preview_zoom);
+        crate::activity::begin(&project_root);
+        glib::timeout_add_local(Duration::from_secs(20), || {
+            crate::activity::flush();
+            glib::ControlFlow::Continue
+        });
 
         // ── Compilation profile wiring ──────────────────────────────────────
         {
@@ -487,8 +492,15 @@ impl AppWindow {
                 project_root.clone(),
                 editor_pane.clone(),
             );
+            let backup = backup_now(&sync_btn);
             btn.connect_clicked(move |_| {
-                super::history_export::run(&win, &toasts, &root, ep.get_active_path());
+                super::history_export::run(
+                    &win,
+                    &toasts,
+                    &root,
+                    ep.get_active_path(),
+                    backup.clone(),
+                );
             });
             editor_pane.status_bar_insert_after_safety(&btn);
         }
@@ -2865,6 +2877,7 @@ impl AppWindow {
                             &toast_for_pal,
                             &root_for_pal,
                             editor_for_pal.get_active_path(),
+                            backup_now(&sync_btn_for_pal),
                         ),
                         "check_spelling" => editor_for_pal.check_spelling_now(),
                         "note_for_next_time" => {
@@ -3490,6 +3503,7 @@ impl AppWindow {
         let sync_badge_for_close = self.sync_badge.clone();
 
         self.window.connect_close_request(move |_| {
+            crate::activity::flush();
             // Stage 1: an unsaved-buffer dialog resolves into a second call
             // with force_close set — skip straight past it here.
             if !*force_close.borrow() {
@@ -4044,6 +4058,16 @@ fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
         }
         glib::ControlFlow::Continue
     });
+}
+
+/// Presses the backup button for the writing history window, if it is free.
+fn backup_now(sync_btn: &Button) -> Rc<dyn Fn()> {
+    let sync_btn = sync_btn.clone();
+    Rc::new(move || {
+        if sync_btn.is_sensitive() {
+            sync_btn.emit_clicked();
+        }
+    })
 }
 
 fn load_app_css() {

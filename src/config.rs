@@ -242,6 +242,12 @@ pub struct Config {
     /// which reads as the app not having listened.
     #[serde(default)]
     pub setup_done: bool,
+    /// Added to the top of the writing history, so the person need not retype
+    /// them each time.
+    #[serde(default)]
+    pub history_author: String,
+    #[serde(default)]
+    pub history_course: String,
     #[serde(default = "default_true")]
     pub format_bar_visible: bool,
     #[serde(default)]
@@ -561,6 +567,8 @@ impl Default for Config {
             shown_simple_intro: false,
             shown_editor_orientation: false,
             setup_done: false,
+            history_author: String::new(),
+            history_course: String::new(),
             format_bar_visible: true,
             last_used_advanced: false,
             snippets: Vec::new(),

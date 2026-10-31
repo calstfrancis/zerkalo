@@ -1068,6 +1068,8 @@ impl SettingsDialog {
             let default_serif_font_cur = current.default_serif_font.clone();
             let doc_fonts_cur = doc_fonts.clone();
             let setup_done_cur = current.setup_done;
+            let history_author_cur = current.history_author.clone();
+            let history_course_cur = current.history_course.clone();
             // Owned by the print sheet, not this dialog — carried through so
             // saving preferences doesn't reset the last-used print settings.
             let print_cur = current.print.clone();
@@ -1189,6 +1191,8 @@ impl SettingsDialog {
                     last_used_advanced: last_used_advanced_cur,
                     snippets: snippets_cur.clone(),
                     setup_done: setup_done_cur,
+                    history_author: history_author_cur.clone(),
+                    history_course: history_course_cur.clone(),
                     default_sans_font: doc_fonts_cur
                         .get(sans_row.selected() as usize)
                         .cloned()
