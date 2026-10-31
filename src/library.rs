@@ -1875,34 +1875,68 @@ impl Library {
     /// `Templates` folder at the top — those are starting points for new
     /// documents, not documents, and listing them buries the real ones.
     pub fn import_directory(&mut self, dir: &Path) -> SqlResult<usize> {
-        self.import_tree(dir, dir)
+        let mut found = Vec::new();
+        typ_files(dir, dir, &mut found);
+        for path in &found {
+            self.upsert_document(path)?;
+        }
+        Ok(found.len())
     }
 
-    fn import_tree(&mut self, dir: &Path, root: &Path) -> SqlResult<usize> {
-        let mut count = 0;
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return Ok(0);
+    /// Picks up what a sync brought in: documents the library has never seen,
+    /// and ones whose file has changed since it last looked. Every other file
+    /// costs a `stat`, so this is cheap enough to run after each sync. Files
+    /// the library already holds as deleted stay deleted. Returns how many
+    /// documents were added or updated.
+    pub fn refresh_directory(&mut self, dir: &Path) -> SqlResult<usize> {
+        let mut known: std::collections::HashMap<String, (Option<i64>, Option<i64>)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT path, indexed_mtime, indexed_len FROM documents")?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?;
+            rows.flatten().collect()
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                let is_templates = dir == root && name == "Templates";
-                if !name.starts_with('.') && !is_templates {
-                    count += self.import_tree(&path, root)?;
+        let mut found = Vec::new();
+        typ_files(dir, dir, &mut found);
+        let mut changed = 0;
+        for path in found {
+            let key = path.to_string_lossy().to_string();
+            let stale = match known.remove(&key) {
+                None => true,
+                Some(stored) => {
+                    file_stamp(&path).is_some_and(|(m, l)| stored != (Some(m), Some(l)))
                 }
-            } else if path
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("typ"))
-            {
+            };
+            if stale {
                 self.upsert_document(&path)?;
-                count += 1;
+                changed += 1;
             }
         }
-        Ok(count)
+        Ok(changed)
+    }
+}
+
+fn typ_files(dir: &Path, root: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let is_templates = dir == root && name == "Templates";
+            if !name.starts_with('.') && !is_templates {
+                typ_files(&path, root, out);
+            }
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("typ"))
+        {
+            out.push(path);
+        }
     }
 }
 
@@ -2944,6 +2978,37 @@ mod tests {
             .map(|d| d.title)
             .collect();
         assert_eq!(found, vec!["deep", "top"]);
+    }
+
+    #[test]
+    fn refreshing_after_a_sync_adds_new_projects_and_leaves_the_rest_alone() {
+        let work = TempDir::new().expect("temp dir");
+        let bin = TempDir::new().expect("temp dir");
+        let mut lib = Library::in_memory_with_trash_dir(bin.path().to_path_buf());
+        std::fs::write(work.path().join("old.typ"), "= Old\n").unwrap();
+        std::fs::write(work.path().join("gone.typ"), "= Gone\n").unwrap();
+        lib.import_directory(work.path()).unwrap();
+        assert_eq!(lib.refresh_directory(work.path()).unwrap(), 0);
+
+        let gone = lib
+            .doc_by_path(&work.path().join("gone.typ"))
+            .unwrap()
+            .unwrap();
+        lib.move_to_trash(gone.id).unwrap();
+        std::fs::write(work.path().join("gone.typ"), "= Gone again\n").unwrap();
+        std::fs::create_dir_all(work.path().join("thesis/chapters")).unwrap();
+        std::fs::write(work.path().join("thesis/main.typ"), "= Thesis\n").unwrap();
+        std::fs::write(work.path().join("thesis/chapters/one.typ"), "= One\n").unwrap();
+        std::fs::write(work.path().join("old.typ"), "= Old, with more written\n").unwrap();
+
+        assert_eq!(lib.refresh_directory(work.path()).unwrap(), 4);
+        let titles: Vec<String> = lib
+            .documents(LibraryFilter::All, "", SortOrder::Title)
+            .unwrap()
+            .into_iter()
+            .map(|d| d.title)
+            .collect();
+        assert_eq!(titles, vec!["main", "old", "one"]);
     }
 
     #[test]

@@ -774,11 +774,7 @@ impl SettingsDialog {
         let after_update_row = combo(
             "After an update",
             "What happens the first time you open a new version of Zerkalo",
-            &[
-                "What's new window",
-                "Status bar note",
-                "Nothing",
-            ],
+            &["What's new window", "Status bar note", "Nothing"],
             match cf.after_update {
                 AfterUpdate::Window => 0,
                 AfterUpdate::Note => 1,
@@ -838,11 +834,7 @@ impl SettingsDialog {
         let spelling_row = combo(
             "Spelling",
             "The word you are still writing is never underlined. F7 checks everything now",
-            &[
-                "As I type",
-                "After each paragraph",
-                "Only when asked",
-            ],
+            &["As I type", "After each paragraph", "Only when asked"],
             match cf.spelling {
                 SpellTiming::AsIType => 0,
                 SpellTiming::AfterParagraph => 1,
@@ -1497,5 +1489,26 @@ mod tests {
     fn a_font_list_with_none_of_the_preferred_names_still_selects_something() {
         let fonts = vec!["Abyssinica SIL".to_string()];
         assert_eq!(best_font_index(&fonts, "", SANS_FONT_PRIORITY), 0);
+    }
+
+    /// A choice in a drop-down row sits beside the row's title in a dialog
+    /// about 700 px wide; a long one is cut off with "…" and can't be read.
+    #[test]
+    fn choices_in_comfort_drop_downs_are_short_enough_to_read_in_full() {
+        let src = include_str!("settings_dialog.rs");
+        let start = src.find("let quiet_group").unwrap();
+        let end = src.find("let reset_group").unwrap();
+        let mut long = Vec::new();
+        for call in src[start..end].split("combo(").skip(1) {
+            let Some(list) = call.split("&[").nth(1).and_then(|l| l.split(']').next()) else {
+                continue;
+            };
+            for choice in list.split('"').skip(1).step_by(2) {
+                if choice.chars().count() > 24 {
+                    long.push(choice.to_string());
+                }
+            }
+        }
+        assert!(long.is_empty(), "choices too long to read: {long:?}");
     }
 }

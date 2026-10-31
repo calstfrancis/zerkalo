@@ -3915,7 +3915,7 @@ fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
     let notes_seen: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
     let backups = crate::config::zerkalo_data_dir();
     glib::timeout_add_local(Duration::from_secs(3), move || {
-        if !crate::config::shared().borrow().library.export || !folder.is_dir() {
+        if !folder.is_dir() {
             return glib::ControlFlow::Continue;
         }
         // A sync is committing and pulling: a file changing now would make the
@@ -3931,7 +3931,19 @@ fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
         let files_changed = just_synced
             || (ticks.get().is_multiple_of(20)
                 && (crate::library_restore::tree_stamp(&folder) != tree.get() || waiting.get()));
-        let restore_now = !verified.get() || files_changed;
+        // Documents that arrived with the sync (a project started on another
+        // machine) aren't in the library until it looks for them; their labels
+        // and projects can only be merged in once they are.
+        let arrived = just_synced
+            && library
+                .borrow_mut()
+                .refresh_directory(&folder)
+                .map(|n| n > 0)
+                .unwrap_or(false);
+        if !crate::config::shared().borrow().library.export {
+            return glib::ControlFlow::Continue;
+        }
+        let restore_now = !verified.get() || files_changed || arrived;
 
         if restore_now {
             let r =
