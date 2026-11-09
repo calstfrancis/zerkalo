@@ -14,8 +14,69 @@ use libadwaita as adw;
 use super::notify::Say;
 use crate::writing_history::{History, Item};
 
-/// How many of the latest days the chart shows.
-const CHART_DAYS: usize = 45;
+/// Longest span still drawn one bar per day; longer ones get a bar per week.
+const DAILY_LIMIT_DAYS: i64 = 120;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Metric {
+    Words,
+    Lines,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Span {
+    Days(i64),
+    All,
+}
+
+#[derive(Clone)]
+struct Bar {
+    start: chrono::NaiveDate,
+    end: chrono::NaiveDate,
+    lines: usize,
+    words: usize,
+    lines_out: usize,
+    words_out: usize,
+}
+
+impl Bar {
+    fn written(&self, m: Metric) -> usize {
+        match m {
+            Metric::Words => self.words,
+            Metric::Lines => self.lines,
+        }
+    }
+
+    fn taken_out(&self, m: Metric) -> usize {
+        match m {
+            Metric::Words => self.words_out,
+            Metric::Lines => self.lines_out,
+        }
+    }
+
+    fn describe(&self) -> String {
+        let when = if self.start == self.end {
+            self.start.format("%a %-d %b").to_string()
+        } else {
+            format!(
+                "{} to {}",
+                self.start.format("%-d %b"),
+                self.end.format("%-d %b")
+            )
+        };
+        let n =
+            |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+        format!(
+            "{when}: {} and {} written, {} and {} taken out",
+            n(self.words, "word", "words"),
+            n(self.lines, "line", "lines"),
+            n(self.words_out, "word", "words"),
+            n(self.lines_out, "line", "lines"),
+        )
+    }
+}
+
+type Bars = Rc<RefCell<Vec<Bar>>>;
 
 pub fn run(
     parent: &impl IsA<gtk4::Window>,
@@ -184,48 +245,159 @@ pub fn run(
     stack.set_hexpand(true);
 
     // ── The list of versions, with the days they were written ────────────
-    let days: Rc<RefCell<Vec<(chrono::NaiveDate, usize)>>> = Rc::new(RefCell::new(Vec::new()));
-    let chart_title = gtk4::Label::new(Some("Lines written each day"));
+    let bars: Bars = Rc::new(RefCell::new(Vec::new()));
+    let hovered: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
+    let metric = Rc::new(Cell::new(Metric::Words));
+    let span = Rc::new(Cell::new(Span::Days(30)));
+    let history: Rc<RefCell<Option<History>>> = Rc::new(RefCell::new(None));
+    let marks: Rc<RefCell<Vec<gtk4::TextMark>>> = Rc::new(RefCell::new(Vec::new()));
+    let chart_title = gtk4::Label::new(None);
     chart_title.add_css_class("caption-heading");
     chart_title.set_xalign(0.0);
     let chart = gtk4::DrawingArea::new();
-    chart.set_content_height(70);
+    chart.set_content_height(90);
     chart.set_hexpand(true);
-    chart.update_property(&[gtk4::accessible::Property::Label(
-        "Chart of lines written each day",
-    )]);
+    chart.set_focusable(true);
+    chart.set_has_tooltip(true);
     {
-        let days = days.clone();
+        let (bars, hovered, metric) = (bars.clone(), hovered.clone(), metric.clone());
         chart.set_draw_func(move |area, cr, w, h| {
-            let days = days.borrow();
-            let Some(&peak) = days.iter().map(|(_, n)| n).max() else {
+            let bars = bars.borrow();
+            if bars.is_empty() {
                 return;
-            };
-            let (r, g, b) = super::theme::rgb(area, "accent_bg_color").unwrap_or((0.2, 0.5, 0.9));
-            cr.set_source_rgb(r, g, b);
+            }
+            let m = metric.get();
+            let color = |name: &str, fallback| super::theme::rgb(area, name).unwrap_or(fallback);
+            let (r, g, b) = color("accent_bg_color", (0.2, 0.5, 0.9));
+            let (dr, dg, db) = color("destructive_bg_color", (0.8, 0.2, 0.2));
+            let (fr, fg, fb) = color("window_fg_color", (0.5, 0.5, 0.5));
             let (w, h) = (w as f64, h as f64);
-            let slot = w / days.len().max(1) as f64;
-            let bar = (slot * 0.7).clamp(1.0, 18.0);
-            for (i, (_, n)) in days.iter().enumerate() {
-                let height = (*n as f64 / peak.max(1) as f64 * (h - 2.0)).max(if *n > 0 {
-                    2.0
+            let base = (h * 0.72).round();
+            let (up, down) = (base - 2.0, h - base - 1.0);
+            let peak_up = bars.iter().map(|b| b.written(m)).max().unwrap_or(0).max(1) as f64;
+            let peak_down = bars
+                .iter()
+                .map(|b| b.taken_out(m))
+                .max()
+                .unwrap_or(0)
+                .max(1) as f64;
+            let scale = (up / peak_up).min(down / peak_down);
+            let slot = w / bars.len() as f64;
+            let bar_w = (slot * 0.7).clamp(1.0, 18.0);
+            let tall = |n: usize| {
+                if n > 0 {
+                    (n as f64 * scale).max(2.0)
                 } else {
                     0.0
-                });
-                cr.rectangle(
-                    i as f64 * slot + (slot - bar) / 2.0,
-                    h - height,
-                    bar,
-                    height,
-                );
+                }
+            };
+            for (i, bar) in bars.iter().enumerate() {
+                let alpha = if hovered.get().is_none_or(|j| j == i) {
+                    1.0
+                } else {
+                    0.45
+                };
+                let x = i as f64 * slot + (slot - bar_w) / 2.0;
+                cr.set_source_rgba(r, g, b, alpha);
+                let height = tall(bar.written(m));
+                cr.rectangle(x, base - height, bar_w, height);
+                let _ = cr.fill();
+                cr.set_source_rgba(dr, dg, db, alpha * 0.6);
+                let height = tall(bar.taken_out(m)).min(down);
+                cr.rectangle(x, base, bar_w, height);
                 let _ = cr.fill();
             }
+            cr.set_source_rgba(fr, fg, fb, 0.25);
+            cr.rectangle(0.0, base, w, 1.0);
+            let _ = cr.fill();
+        });
+    }
+    let bar_at = {
+        let bars = bars.clone();
+        move |area: &gtk4::DrawingArea, x: f64| -> Option<usize> {
+            let n = bars.borrow().len();
+            let w = area.width() as f64;
+            (n > 0 && w > 0.0 && x >= 0.0 && x < w)
+                .then(|| ((x / w * n as f64) as usize).min(n - 1))
+        }
+    };
+    let point_at = {
+        let (chart, hovered, bars) = (chart.clone(), hovered.clone(), bars.clone());
+        move |i: Option<usize>| {
+            if hovered.get() != i {
+                hovered.set(i);
+                if let Some(bar) = i.and_then(|i| bars.borrow().get(i).cloned()) {
+                    chart.update_property(&[gtk4::accessible::Property::Label(&bar.describe())]);
+                }
+                chart.queue_draw();
+            }
+        }
+    };
+    {
+        let motion = gtk4::EventControllerMotion::new();
+        {
+            let (chart, bar_at, point_at) = (chart.clone(), bar_at.clone(), point_at.clone());
+            motion.connect_motion(move |_, x, _| point_at(bar_at(&chart, x)));
+        }
+        {
+            let point_at = point_at.clone();
+            motion.connect_leave(move |_| point_at(None));
+        }
+        chart.add_controller(motion);
+        let focus = gtk4::EventControllerFocus::new();
+        {
+            let (bars, hovered, point_at) = (bars.clone(), hovered.clone(), point_at.clone());
+            focus.connect_enter(move |_| {
+                let n = bars.borrow().len();
+                if hovered.get().is_none() && n > 0 {
+                    point_at(Some(n - 1));
+                }
+            });
+        }
+        {
+            let point_at = point_at.clone();
+            focus.connect_leave(move |_| point_at(None));
+        }
+        chart.add_controller(focus);
+        let (bars, bar_at) = (bars.clone(), bar_at.clone());
+        chart.connect_query_tooltip(move |area, x, _, _, tip| {
+            let Some(bar) = bar_at(area, x as f64).and_then(|i| bars.borrow().get(i).cloned())
+            else {
+                return false;
+            };
+            tip.set_text(Some(&bar.describe()));
+            true
         });
     }
     let chart_range = gtk4::Label::new(None);
     chart_range.add_css_class("caption");
     chart_range.add_css_class("dim-label");
     chart_range.set_xalign(0.0);
+
+    let chart_toggle = |labels: &[&str]| {
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        row.add_css_class("linked");
+        let mut first: Option<gtk4::ToggleButton> = None;
+        let mut buttons = Vec::new();
+        for label in labels {
+            let b = gtk4::ToggleButton::with_label(label);
+            b.add_css_class("caption");
+            if let Some(f) = &first {
+                b.set_group(Some(f));
+            } else {
+                first = Some(b.clone());
+                b.set_active(true);
+            }
+            row.append(&b);
+            buttons.push(b);
+        }
+        (row, buttons)
+    };
+    let (metric_row, metric_buttons) = chart_toggle(&["Words", "Lines"]);
+    let (span_row, span_buttons) = chart_toggle(&["30 days", "90 days", "All"]);
+    let chart_controls = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    chart_controls.append(&metric_row);
+    chart_controls.append(&span_row);
 
     let versions_title = gtk4::Label::new(Some("Versions"));
     versions_title.add_css_class("caption-heading");
@@ -238,6 +410,113 @@ pub fn run(
     list_scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
     list_scroll.set_child(Some(&list));
 
+    let redraw_chart = {
+        let (bars, chart, chart_title, chart_range, history, metric, span) = (
+            bars.clone(),
+            chart.clone(),
+            chart_title.clone(),
+            chart_range.clone(),
+            history.clone(),
+            metric.clone(),
+            span.clone(),
+        );
+        Rc::new(move || {
+            let items = history.borrow();
+            update_chart(
+                &bars,
+                &chart,
+                &chart_title,
+                &chart_range,
+                items.as_ref().map_or(&[][..], |h| &h.items[..]),
+                metric.get(),
+                span.get(),
+            );
+        })
+    };
+    for (b, m) in metric_buttons.iter().zip([Metric::Words, Metric::Lines]) {
+        let (metric, redraw) = (metric.clone(), redraw_chart.clone());
+        b.connect_toggled(move |b| {
+            if b.is_active() {
+                metric.set(m);
+                redraw();
+            }
+        });
+    }
+    for (b, s) in span_buttons
+        .iter()
+        .zip([Span::Days(30), Span::Days(90), Span::All])
+    {
+        let (span, redraw) = (span.clone(), redraw_chart.clone());
+        b.connect_toggled(move |b| {
+            if b.is_active() {
+                span.set(s);
+                redraw();
+            }
+        });
+    }
+    let jump_to_bar = {
+        let (bars, history, list) = (bars.clone(), history.clone(), list.clone());
+        Rc::new(move |i: usize| {
+            let Some(bar) = bars.borrow().get(i).cloned() else {
+                return;
+            };
+            let history = history.borrow();
+            let Some(n) = history.as_ref().and_then(|h| {
+                h.items
+                    .iter()
+                    .position(|it| it.day >= bar.start && it.day <= bar.end)
+            }) else {
+                return;
+            };
+            if let Some(row) = list.row_at_index(n as i32) {
+                list.select_row(Some(&row));
+                row.activate();
+            }
+        })
+    };
+    {
+        let click = gtk4::GestureClick::new();
+        let (area, bar_at, jump) = (chart.clone(), bar_at.clone(), jump_to_bar.clone());
+        click.connect_released(move |_, _, x, _| {
+            area.grab_focus();
+            if let Some(i) = bar_at(&area, x) {
+                jump(i);
+            }
+        });
+        chart.add_controller(click);
+    }
+    {
+        let keys = gtk4::EventControllerKey::new();
+        let (bars, hovered, point_at, jump) = (
+            bars.clone(),
+            hovered.clone(),
+            point_at.clone(),
+            jump_to_bar.clone(),
+        );
+        keys.connect_key_pressed(move |_, key, _, _| {
+            use gtk4::gdk::Key;
+            let n = bars.borrow().len();
+            if n == 0 {
+                return gtk4::glib::Propagation::Proceed;
+            }
+            let at = hovered.get().unwrap_or(n - 1);
+            let target = match key {
+                Key::Left => at.saturating_sub(1),
+                Key::Right => (at + 1).min(n - 1),
+                Key::Home => 0,
+                Key::End => n - 1,
+                Key::Return | Key::KP_Enter | Key::space => {
+                    jump(at);
+                    return gtk4::glib::Propagation::Stop;
+                }
+                _ => return gtk4::glib::Propagation::Proceed,
+            };
+            point_at(Some(target));
+            gtk4::glib::Propagation::Stop
+        });
+        chart.add_controller(keys);
+    }
+
     let side = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
     side.set_width_request(260);
     side.set_hexpand(false);
@@ -247,6 +526,7 @@ pub fn run(
     side.set_margin_top(14);
     side.set_margin_bottom(14);
     side.append(&chart_title);
+    side.append(&chart_controls);
     side.append(&chart);
     side.append(&chart_range);
     side.append(&versions_title);
@@ -278,8 +558,6 @@ pub fn run(
     win.set_content(Some(&toolbar));
 
     // ── Behaviour ────────────────────────────────────────────────────────
-    let history: Rc<RefCell<Option<History>>> = Rc::new(RefCell::new(None));
-    let marks: Rc<RefCell<Vec<gtk4::TextMark>>> = Rc::new(RefCell::new(Vec::new()));
     let generation = Rc::new(Cell::new(0u32));
     let root = project_root.to_path_buf();
 
@@ -331,12 +609,7 @@ pub fn run(
             let (history, generation, root) = (history.clone(), generation.clone(), root.clone());
             let active_file = active_file.clone();
             let (author, course) = (author.clone(), course.clone());
-            let (days, chart, chart_range, list) = (
-                days.clone(),
-                chart.clone(),
-                chart_range.clone(),
-                list.clone(),
-            );
+            let (redraw_chart, list) = (redraw_chart.clone(), list.clone());
             let (show, marks) = (show.clone(), marks.clone());
             Rc::new(move || {
                 generation.set(generation.get() + 1);
@@ -365,12 +638,7 @@ pub fn run(
                 );
                 let (save_menu, copy_btn) = (save_menu.clone(), copy_btn.clone());
                 let (history, generation) = (history.clone(), generation.clone());
-                let (days, chart, chart_range, list) = (
-                    days.clone(),
-                    chart.clone(),
-                    chart_range.clone(),
-                    list.clone(),
-                );
+                let (redraw_chart, list) = (redraw_chart.clone(), list.clone());
                 let (show, marks) = (show.clone(), marks.clone());
                 gtk4::glib::spawn_future_local(async move {
                     let built = gtk4::gio::spawn_blocking(move || {
@@ -398,8 +666,8 @@ pub fn run(
                             );
                                 notice.set_revealed(true);
                             }
-                            update_chart(&days, &chart, &chart_range, &h.items);
                             *history.borrow_mut() = Some(h);
+                            redraw_chart();
                             show();
                             fill_list(&list, history.borrow().as_ref().map(|h| &h.items[..]));
                             let _ = &marks;
@@ -561,29 +829,63 @@ fn write_record(text: &str, out: &Path, pdf: bool) -> Result<(), String> {
 }
 
 fn update_chart(
-    days: &Rc<RefCell<Vec<(chrono::NaiveDate, usize)>>>,
+    bars: &Bars,
     chart: &gtk4::DrawingArea,
+    title: &gtk4::Label,
     range: &gtk4::Label,
     items: &[Item],
+    metric: Metric,
+    span: Span,
 ) {
-    let mut out: Vec<(chrono::NaiveDate, usize)> = Vec::new();
+    let mut out: Vec<Bar> = Vec::new();
+    let mut step = 1;
     if let (Some(first), Some(last)) = (items.first(), items.last()) {
-        let start = first
-            .day
-            .max(last.day - chrono::Duration::days(CHART_DAYS as i64 - 1));
+        let start = match span {
+            Span::Days(n) => first.day.max(last.day - chrono::Duration::days(n - 1)),
+            Span::All => first.day,
+        };
+        if (last.day - start).num_days() >= DAILY_LIMIT_DAYS {
+            step = 7;
+        }
         let mut d = start;
         while d <= last.day {
-            let n = items.iter().filter(|i| i.day == d).map(|i| i.added).sum();
-            out.push((d, n));
-            d += chrono::Duration::days(1);
+            let end = (d + chrono::Duration::days(step - 1)).min(last.day);
+            let mut bar = Bar {
+                start: d,
+                end,
+                lines: 0,
+                words: 0,
+                lines_out: 0,
+                words_out: 0,
+            };
+            for i in items.iter().filter(|i| i.day >= d && i.day <= end) {
+                bar.lines += i.added;
+                bar.words += i.words;
+                bar.lines_out += i.removed;
+                bar.words_out += i.words_removed;
+            }
+            out.push(bar);
+            d = end + chrono::Duration::days(1);
         }
         range.set_text(&format!(
             "{} to {}",
             start.format("%-d %b"),
             last.day.format("%-d %b")
         ));
+    } else {
+        range.set_text("");
     }
-    *days.borrow_mut() = out;
+    let what = match metric {
+        Metric::Words => "Words",
+        Metric::Lines => "Lines",
+    };
+    let per = if step == 1 { "day" } else { "week" };
+    title.set_text(&format!("{what} written each {per}"));
+    chart.update_property(&[gtk4::accessible::Property::Label(&format!(
+        "Chart of {} written each {per}, with what was taken out below. Use left and right to move between bars, and Enter to show that {per}'s versions.",
+        what.to_lowercase()
+    ))]);
+    *bars.borrow_mut() = out;
     chart.queue_draw();
 }
 

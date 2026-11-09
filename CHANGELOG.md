@@ -3,6 +3,17 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.57.0] "Steady Tally" — 2026-11-09 — A better writing chart
+
+### Added
+
+- **Hover any bar in the writing history chart** to see that day's words and lines written and taken out.
+- **Words or Lines.** A toggle switches the chart between words written (the default) and lines written.
+- **What you took out.** Text removed each day hangs below the baseline in a muted red, on the same scale as what you added.
+- **Click a bar** to jump to the first version saved in that period.
+- **30 days, 90 days or All.** Spans longer than about four months show one bar per week.
+- **Keyboard use.** Tab to the chart, then Left, Right, Home and End move between bars and Enter shows that period's versions; each bar is read out to screen readers.
+
 ## [0.56.1] "Single Page" — 2026-10-31 — Writing history is about one document
 
 ### Fixed

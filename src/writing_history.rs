@@ -42,7 +42,9 @@ struct Version {
     when: DateTime<FixedOffset>,
     message: String,
     added: usize,
+    words: usize,
     removed: usize,
+    words_removed: usize,
     diff: String,
     files: Vec<FileChange>,
 }
@@ -61,7 +63,11 @@ pub struct Item {
     pub label: String,
     pub day: NaiveDate,
     pub added: usize,
+    /// Words in the added lines.
+    pub words: usize,
     pub removed: usize,
+    /// Words in the removed lines.
+    pub words_removed: usize,
 }
 
 /// The finished record, with the few numbers a window shows beside it.
@@ -160,7 +166,9 @@ pub fn build(
                 label: v.when.format("%-d %b, %-I:%M %P").to_string(),
                 day: day(v),
                 added: v.added,
+                words: v.words,
                 removed: v.removed,
+                words_removed: v.words_removed,
             })
             .collect(),
         versions: versions.len(),
@@ -195,7 +203,7 @@ fn parse(text: &str) -> Vec<Version> {
             continue;
         };
         let diff = diff.trim_start_matches('\n');
-        let (mut added, mut removed) = (0, 0);
+        let (mut added, mut removed, mut words, mut words_removed) = (0, 0, 0, 0);
         let mut files: Vec<FileChange> = Vec::new();
         for line in diff.lines() {
             if let Some(rest) = line.strip_prefix("diff --git ") {
@@ -212,11 +220,13 @@ fn parse(text: &str) -> Vec<Version> {
             }
             if let Some(text) = line.strip_prefix('+') {
                 added += 1;
+                words += text.split_whitespace().count();
                 if let Some(f) = files.last_mut() {
                     f.added.push(text.to_string());
                 }
-            } else if line.starts_with('-') {
+            } else if let Some(text) = line.strip_prefix('-') {
                 removed += 1;
+                words_removed += text.split_whitespace().count();
                 if let Some(f) = files.last_mut() {
                     f.removed += 1;
                 }
@@ -227,7 +237,9 @@ fn parse(text: &str) -> Vec<Version> {
             when,
             message: message.to_string(),
             added,
+            words,
             removed,
+            words_removed,
             diff: diff.trim_end().to_string(),
             files,
         });

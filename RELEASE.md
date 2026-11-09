@@ -1,9 +1,13 @@
-<!-- zerkalo-release: 0.56.1 -->
+<!-- zerkalo-release: 0.57.0 -->
 ### What's new
 
-The writing history is about one document.
+A better chart in the writing history.
 
-**Only the document you have open.** The writing history used to mix in every file in the project. Now the record, its typing sessions and its pasted-text list belong to just the document you opened it from, so what you hand a teacher shows nothing else. Typing sessions from 0.56.0 covered the whole project and are not carried over; the saved versions are all still there.
+**See the numbers.** Hover any bar for that day's words and lines written and taken out. The chart now counts words by default, with a switch to lines.
+
+**See what you cut.** Text you removed hangs below the baseline in a muted red, on the same scale as what you added, so a day of editing looks different from a day of drafting.
+
+**Move around it.** Click a bar to jump to the versions saved in that period, choose 30 days, 90 days or all time (long spans show one bar per week), or use Tab and the arrow keys with Enter to do the same from the keyboard.
 
 ---
 

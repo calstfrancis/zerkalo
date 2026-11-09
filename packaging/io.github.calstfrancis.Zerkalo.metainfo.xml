@@ -87,6 +87,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.57.0" date="2026-11-09">
+      <description>
+        <p>0.57.0 "Steady Tally" — a better writing chart in the writing history: hover a bar for the words and lines written and taken out, switch between words and lines, see what you removed below the baseline, click a bar to jump to its versions, choose 30 days, 90 days or all time, and move between bars with the keyboard.</p>
+      </description>
+    </release>
     <release version="0.56.1" date="2026-10-31">
       <description>
         <p>0.56.1 "Single Page" — the writing history now covers only the document you have open: its versions, typing sessions and pasted text, with nothing from other files in the project.</p>
