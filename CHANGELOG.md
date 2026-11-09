@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.57.1] "Sound Footing" — 2026-11-09 — Security updates
+
+### Fixed
+
+- **Security updates to bundled libraries.** SQLite (used for the reference library) is updated to a version that no longer returns stale memory for a crafted database, and the networking, DOCX/ODT (zip), Markdown and compression libraries are updated to their patched releases. Nothing changes in how Zerkalo looks or works.
+
 ## [0.57.0] "Steady Tally" — 2026-11-09 — A better writing chart
 
 ### Added

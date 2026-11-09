@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.57.0"
+version = "0.57.1"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -27,7 +27,7 @@ regex = "1.10"
 chrono = "0.4"
 shellexpand = "3.1"
 notify = "6"
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 biblatex = "0.12"
 hayagriva = "0.10"
 
@@ -40,8 +40,8 @@ skrizhal-core = { git = "https://github.com/calstfrancis/skrizhal", tag = "v0.4.
 # integration with a Kartoteka vault as a live bibliography source (no
 # "acquire" feature — that pulls in reqwest/tokio for DOI/ISBN lookup,
 # irrelevant here).
-fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.19.0" }
-fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.19.0" }
+fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.23.2-dev1" }
+fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.23.2-dev1" }
 
 # Embedded Typst compiler
 typst = "0.15"
@@ -57,7 +57,7 @@ lopdf = { version = "0.44.0", default-features = false }
 # Document import without pandoc for the formats that don't need it: .docx and
 # .odt are ZIP archives of XML, .md is text. Keeps the common import paths
 # working with nothing installed outside Zerkalo.
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 roxmltree = "0.21"
 # Word export (src/docx_export.rs): decoding the images Typst embeds as data URIs,
 # reading their size, and rasterising SVG content (math, drawings) for Word. All

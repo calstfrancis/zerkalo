@@ -1,13 +1,9 @@
-<!-- zerkalo-release: 0.57.0 -->
+<!-- zerkalo-release: 0.57.1 -->
 ### What's new
 
-A better chart in the writing history.
+Security updates, and nothing else.
 
-**See the numbers.** Hover any bar for that day's words and lines written and taken out. The chart now counts words by default, with a switch to lines.
-
-**See what you cut.** Text you removed hangs below the baseline in a muted red, on the same scale as what you added, so a day of editing looks different from a day of drafting.
-
-**Move around it.** Click a bar to jump to the versions saved in that period, choose 30 days, 90 days or all time (long spans show one bar per week), or use Tab and the arrow keys with Enter to do the same from the keyboard.
+**Updated libraries.** The bundled SQLite (used for the reference library), the networking libraries, the DOCX/ODT reader and the Markdown parser are updated to versions that fix recently published security problems. Nothing changes in how Zerkalo looks or works.
 
 ---
 

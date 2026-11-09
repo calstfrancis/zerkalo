@@ -87,6 +87,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.57.1" date="2026-11-09">
+      <description>
+        <p>0.57.1 "Sound Footing" — security updates to the bundled SQLite, networking, zip and Markdown libraries. Nothing changes in how Zerkalo works.</p>
+      </description>
+    </release>
     <release version="0.57.0" date="2026-11-09">
       <description>
         <p>0.57.0 "Steady Tally" — a better writing chart in the writing history: hover a bar for the words and lines written and taken out, switch between words and lines, see what you removed below the baseline, click a bar to jump to its versions, choose 30 days, 90 days or all time, and move between bars with the keyboard.</p>

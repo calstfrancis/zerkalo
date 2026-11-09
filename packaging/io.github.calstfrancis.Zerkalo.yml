@@ -109,7 +109,8 @@ modules:
         set -e
         SKRIZHAL_TAG=$(grep 'calstfrancis/skrizhal' Cargo.toml | grep -o 'tag = "[^"]*"' | head -1 | cut -d'"' -f2)
         KARTOTEKA_TAG=$(grep 'calstfrancis/kartoteka' Cargo.toml | grep -o 'tag = "[^"]*"' | head -1 | cut -d'"' -f2)
-        printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "%s"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "%s"\n' "$SKRIZHAL_TAG" "$KARTOTEKA_TAG" > cargo/config
+        FOND_CORE_REV=$(grep -o 'fond-core?rev=[0-9a-f]*' Cargo.lock | head -1 | cut -d= -f2)
+        printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "%s"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "%s"\n\n[source."https://github.com/calstfrancis/fond-core"]\ngit = "https://github.com/calstfrancis/fond-core"\nreplace-with = "vendored-sources"\nrev = "%s"\n' "$SKRIZHAL_TAG" "$KARTOTEKA_TAG" "$FOND_CORE_REV" > cargo/config
       # Stub main.rs so cargo compiles all deps but not the real app code
       - mkdir -p src
       - echo 'fn main() {}' > src/main.rs
@@ -149,7 +150,8 @@ modules:
         set -e
         SKRIZHAL_TAG=$(grep 'calstfrancis/skrizhal' Cargo.toml | grep -o 'tag = "[^"]*"' | head -1 | cut -d'"' -f2)
         KARTOTEKA_TAG=$(grep 'calstfrancis/kartoteka' Cargo.toml | grep -o 'tag = "[^"]*"' | head -1 | cut -d'"' -f2)
-        printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "%s"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "%s"\n' "$SKRIZHAL_TAG" "$KARTOTEKA_TAG" > cargo/config
+        FOND_CORE_REV=$(grep -o 'fond-core?rev=[0-9a-f]*' Cargo.lock | head -1 | cut -d= -f2)
+        printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "%s"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "%s"\n\n[source."https://github.com/calstfrancis/fond-core"]\ngit = "https://github.com/calstfrancis/fond-core"\nreplace-with = "vendored-sources"\nrev = "%s"\n' "$SKRIZHAL_TAG" "$KARTOTEKA_TAG" "$FOND_CORE_REV" > cargo/config
       # zerkalo-deps' pre-built target dir lives in the shared /app tree,
       # which flatpak-builder mounts read-only via rofiles-fuse whenever that
       # module is a cache hit (i.e. most builds, once dependencies stop
