@@ -1045,7 +1045,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 [[package]]
 name = "fond-annot"
 version = "0.1.0"
-source = "git+https://github.com/calstfrancis/fond-core?rev=b1adce104#b1adce10452309e9b0e44b43a14650c854f73325"
+source = "git+https://github.com/calstfrancis/fond-core?rev=28d95c1491bdda6e708c04ce2768f89374e62338#28d95c1491bdda6e708c04ce2768f89374e62338"
 dependencies = [
  "blake3",
  "serde",
@@ -1056,7 +1056,7 @@ dependencies = [
 [[package]]
 name = "fond-bib"
 version = "0.1.0"
-source = "git+https://github.com/calstfrancis/kartoteka?tag=v0.23.2#1c87148eecfab9c0ba51ec37879ce8e3808eb2cf"
+source = "git+https://github.com/calstfrancis/kartoteka?tag=v0.24.0#51a4d0d712283bc7c64b9cfcb934865b07b3b74c"
 dependencies = [
  "biblatex 0.11.0",
  "blake3",
@@ -1073,6 +1073,7 @@ dependencies = [
 [[package]]
 name = "fond-status"
 version = "0.1.0"
+source = "git+https://github.com/calstfrancis/fond-core?rev=28d95c1491bdda6e708c04ce2768f89374e62338#28d95c1491bdda6e708c04ce2768f89374e62338"
 dependencies = [
  "serde",
  "serde_json",
@@ -1082,7 +1083,7 @@ dependencies = [
 [[package]]
 name = "fond-vault"
 version = "0.1.0"
-source = "git+https://github.com/calstfrancis/kartoteka?tag=v0.23.2#1c87148eecfab9c0ba51ec37879ce8e3808eb2cf"
+source = "git+https://github.com/calstfrancis/kartoteka?tag=v0.24.0#51a4d0d712283bc7c64b9cfcb934865b07b3b74c"
 dependencies = [
  "git2 0.20.4",
  "notify",
@@ -5842,7 +5843,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.57.1"
+version = "0.57.2"
 dependencies = [
  "ashpd",
  "base64",

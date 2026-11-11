@@ -87,6 +87,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.57.2" date="2026-11-11">
+      <description>
+        <p>0.57.2 "Quiet Glass" — Zerkalo now keeps a small note of the last three documents you had open, so Porog, the new Fond suite launcher, can reopen them. Nothing changes in how Zerkalo works.</p>
+      </description>
+    </release>
     <release version="0.57.1" date="2026-11-09">
       <description>
         <p>0.57.1 "Sound Footing" — security updates to the bundled SQLite, networking, zip and Markdown libraries. Nothing changes in how Zerkalo works.</p>

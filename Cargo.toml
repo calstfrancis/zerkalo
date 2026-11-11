@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.57.1"
+version = "0.57.2"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -40,12 +40,10 @@ skrizhal-core = { git = "https://github.com/calstfrancis/skrizhal", tag = "v0.4.
 # integration with a Kartoteka vault as a live bibliography source (no
 # "acquire" feature — that pulls in reqwest/tokio for DOI/ISBN lookup,
 # irrelevant here).
-fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.23.2" }
-fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.23.2" }
-# The Porog launcher's status file. A path dependency until fond-core's `fond-status` is
-# pushed; switch to `git = "https://github.com/calstfrancis/fond-core", rev = "…"` before
-# any flatpak build, which cannot see a sibling directory.
-fond-status = { path = "../fond-core/crates/fond-status" }
+fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.24.0" }
+fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.24.0" }
+# The Porog launcher's status file, from fond-core.
+fond-status = { git = "https://github.com/calstfrancis/fond-core", rev = "28d95c1491bdda6e708c04ce2768f89374e62338" }
 
 # Embedded Typst compiler
 typst = "0.15"

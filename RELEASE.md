@@ -1,9 +1,9 @@
-<!-- zerkalo-release: 0.57.1 -->
+<!-- zerkalo-release: 0.57.2 -->
 ### What's new
 
-Security updates, and nothing else.
+Porog support, and nothing else.
 
-**Updated libraries.** The bundled SQLite (used for the reference library), the networking libraries, the DOCX/ODT reader and the Markdown parser are updated to versions that fix recently published security problems. Nothing changes in how Zerkalo looks or works.
+**Reopen from Porog.** Zerkalo keeps a small note of the last three documents you had in front of you, by title and file name. Porog, the new Fond suite launcher, reads it to offer *Resume*. Nothing changes in how Zerkalo looks or works.
 
 ---
 
