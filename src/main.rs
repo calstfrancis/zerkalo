@@ -40,6 +40,7 @@ mod library_export;
 mod library_restore;
 mod lsp;
 mod poetry;
+mod porog_status;
 mod preview_text;
 mod print_layout;
 mod project;

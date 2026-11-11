@@ -1189,6 +1189,7 @@ impl AppWindow {
                 })
                 .unwrap_or_default();
             title_widget_for_switch.set_title(&title);
+            crate::porog_status::active(&path, &title);
             // Show root breadcrumb only when project mode is on and root differs
             if proj_mode_for_switch.get() {
                 if let Some(ref root_path) = *configured_root_for_switch.borrow() {
@@ -1382,6 +1383,7 @@ impl AppWindow {
                 })
                 .unwrap_or_default();
             title_widget_for_open.set_title(&title);
+            crate::porog_status::active(&path, &title);
             let mut cfg = current_config_for_open.borrow_mut();
             cfg.push_recent(path.clone());
             let _ = cfg.save();
@@ -3638,6 +3640,7 @@ impl AppWindow {
             let active_file = ep.get_active_path();
             let cursor_positions = ep.get_cursor_positions();
             Session { open_files, active_file, cursor_positions }.save();
+            crate::porog_status::flush();
             glib::Propagation::Proceed
         });
 

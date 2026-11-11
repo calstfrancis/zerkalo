@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Porog can reopen your last document.** Zerkalo now keeps a small status file, `~/.local/share/fond/status/zerkalo.json`, listing the last three documents you had in front of you (opened or switched to), by title and file name. Porog, the Fond suite launcher, reads it to offer *Resume*. Nothing else reads the file, and deleting it is harmless.
+
 ## [0.57.1] "Sound Footing" — 2026-11-09 — Security updates
 
 ### Fixed

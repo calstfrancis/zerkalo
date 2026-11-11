@@ -42,6 +42,10 @@ skrizhal-core = { git = "https://github.com/calstfrancis/skrizhal", tag = "v0.4.
 # irrelevant here).
 fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.23.2" }
 fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.23.2" }
+# The Porog launcher's status file. A path dependency until fond-core's `fond-status` is
+# pushed; switch to `git = "https://github.com/calstfrancis/fond-core", rev = "…"` before
+# any flatpak build, which cannot see a sibling directory.
+fond-status = { path = "../fond-core/crates/fond-status" }
 
 # Embedded Typst compiler
 typst = "0.15"

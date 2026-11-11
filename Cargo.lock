@@ -1071,6 +1071,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fond-status"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "fond-vault"
 version = "0.1.0"
 source = "git+https://github.com/calstfrancis/kartoteka?tag=v0.23.2#1c87148eecfab9c0ba51ec37879ce8e3808eb2cf"
@@ -5841,6 +5850,7 @@ dependencies = [
  "chrono",
  "fluent-templates",
  "fond-bib",
+ "fond-status",
  "fond-vault",
  "git2 0.21.0",
  "glib",
