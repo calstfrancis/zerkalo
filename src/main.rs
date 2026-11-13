@@ -47,6 +47,7 @@ mod project;
 mod project_model;
 mod recover;
 mod resume;
+mod search_helper;
 mod secret_store;
 mod session;
 mod spellcheck;
@@ -76,6 +77,14 @@ use libadwaita as adw;
 use ui::app_window::AppWindow;
 
 fn main() -> ExitCode {
+    // `--search-json` is a command-line helper, not the app: answer and leave before logging
+    // or GTK start.
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--search-json") {
+        search_helper::run(&args[1..]);
+        return ExitCode::SUCCESS;
+    }
+
     // ── Logging: persistent file + stderr ────────────────────────────────────
     let log_dir = crate::config::zerkalo_data_dir();
     std::fs::create_dir_all(&log_dir).ok();

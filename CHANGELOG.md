@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Search from Porog.** `zerkalo --search-json WORDS` (flatpak command `zerkalo-search`) prints the `.typ` files in the work folder that match by name or text as one line of JSON for the Porog launcher. It reads only the work folder setting, never the keyring.
+
 ## [0.57.2] "Quiet Glass" — 2026-11-11 — Porog support
 
 ### Added
