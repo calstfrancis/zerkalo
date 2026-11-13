@@ -123,8 +123,13 @@ impl TextLayer {
         let (from, to) = if a <= b { (a, b) } else { (b, a) };
         let mut out = String::new();
         let mut prev: Option<&Run> = None;
-        for idx in from.0..=to.0.min(self.runs.len().saturating_sub(1)) {
-            let run = &self.runs[idx];
+        for (idx, run) in self
+            .runs
+            .iter()
+            .enumerate()
+            .take(to.0.saturating_add(1))
+            .skip(from.0)
+        {
             let start = if idx == from.0 { from.1 } else { 0 };
             let end = if idx == to.0 { to.1 } else { run.text.len() };
             if start >= end {
@@ -147,8 +152,13 @@ impl TextLayer {
     pub fn rects(&self, a: Pos, b: Pos) -> Vec<(usize, f64, f64, f64, f64)> {
         let (from, to) = if a <= b { (a, b) } else { (b, a) };
         let mut out = Vec::new();
-        for idx in from.0..=to.0.min(self.runs.len().saturating_sub(1)) {
-            let run = &self.runs[idx];
+        for (idx, run) in self
+            .runs
+            .iter()
+            .enumerate()
+            .take(to.0.saturating_add(1))
+            .skip(from.0)
+        {
             let start = if idx == from.0 { from.1 } else { 0 };
             let end = if idx == to.0 { to.1 } else { run.text.len() };
             if start < end {
