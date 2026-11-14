@@ -1,9 +1,9 @@
-<!-- zerkalo-release: 0.57.2 -->
+<!-- zerkalo-release: 0.58.0 -->
 ### What's new
 
-Porog support, and nothing else.
+Porog's search now reaches Zerkalo, and nothing else changes.
 
-**Reopen from Porog.** Zerkalo keeps a small note of the last three documents you had in front of you, by title and file name. Porog, the new Fond suite launcher, reads it to offer *Resume*. Nothing changes in how Zerkalo looks or works.
+**Search from Porog.** Porog's Ctrl+K search now asks Zerkalo too. It finds the `.typ` files in your work folder by name or text, and a hit opens the file. Zerkalo answers with a new `zerkalo-search` command that reads only your work folder setting and the files themselves: no window, no keyring, nothing written. Nothing changes in how Zerkalo looks or works.
 
 ---
 
