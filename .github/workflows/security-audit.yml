@@ -19,11 +19,10 @@ on:
 jobs:
   security_audit:
     runs-on: ubuntu-24.04
-    permissions:
-      checks: write
-      issues: write
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # Fails on vulnerabilities only; unmaintained/unsound warnings are printed but don't fail the job.
+      - name: Audit
+        run: cargo audit
