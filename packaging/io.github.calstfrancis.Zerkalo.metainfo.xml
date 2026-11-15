@@ -87,6 +87,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.59.0" date="2026-11-15">
+      <description>
+        <p>0.59.0 "Clean Slate" — Porog can now start a blank document in Zerkalo for a paper assignment, named for the course and assignment. Nothing changes in how Zerkalo works.</p>
+      </description>
+    </release>
     <release version="0.58.0" date="2026-11-14">
       <description>
         <p>0.58.0 "Bright Glint" — Porog's search now reaches Zerkalo: the .typ files in your work folder show up in Ctrl+K by name or text, and a hit opens the file. Nothing changes in how Zerkalo works.</p>

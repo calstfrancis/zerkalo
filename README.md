@@ -273,6 +273,10 @@ Configurable keys are remapped in `~/.config/zerkalo/keybindings.toml`; the rest
 
 ---
 
+## Porog
+
+`zerkalo --search-json WORDS` (flatpak command `zerkalo-search`) lists the `.typ` files in the work folder that match, and `zerkalo --new-document=TITLE` creates a blank document named TITLE there and opens it. Both are for the Porog launcher.
+
 ## Porog status file
 
 Zerkalo writes `~/.local/share/fond/status/zerkalo.json` (the `fond-status` format from `fond-core`) whenever a document is opened or its tab is switched to: the last three documents, newest first, each with its title, file name and the path that reopens it. Porog, the Fond suite launcher, reads it to offer *Resume* and hands the path back to `flatpak run`. The code is `src/porog_status.rs`; all of its disk access is on one worker thread.

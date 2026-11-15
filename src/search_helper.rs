@@ -51,7 +51,7 @@ fn answer(query: &[String]) -> String {
 }
 
 /// The `work_dir` from the config file, or Zerkalo's default folder.
-fn work_dir() -> PathBuf {
+pub fn work_dir() -> PathBuf {
     fs::read_to_string(crate::config::zerkalo_config_dir().join("config.toml"))
         .ok()
         .and_then(|text| text.parse::<toml::Table>().ok())

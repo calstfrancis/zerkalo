@@ -1,9 +1,9 @@
-<!-- zerkalo-release: 0.58.0 -->
+<!-- zerkalo-release: 0.59.0 -->
 ### What's new
 
-Porog's search now reaches Zerkalo, and nothing else changes.
+Porog can start an essay in Zerkalo, and nothing else changes.
 
-**Search from Porog.** Porog's Ctrl+K search now asks Zerkalo too. It finds the `.typ` files in your work folder by name or text, and a hit opens the file. Zerkalo answers with a new `zerkalo-search` command that reads only your work folder setting and the files themselves: no window, no keyring, nothing written. Nothing changes in how Zerkalo looks or works.
+**New document from Porog.** When Sputnik's current item is a paper assignment, Porog's Now card offers *New essay*. It makes a blank `.typ` file in your work folder named for the course and assignment (a free name if one is taken), with the title as its first heading, and opens it. Zerkalo does this through a new `--new-document=TITLE` option that reads only your work folder setting: no keyring, nothing else touched. Nothing changes in how Zerkalo looks or works.
 
 ---
 

@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.59.0] "Clean Slate" — 2026-11-15 — New document from Porog
+
+### Added
+
+- **New document from Porog.** `zerkalo --new-document=TITLE` creates a blank `.typ` named for TITLE in the work folder (the next free name if one exists), with the title as its first heading, and opens it. Porog's "New essay" button uses it for a paper assignment. It reads only the work folder setting, never the keyring.
+
 ## [0.58.0] "Bright Glint" — 2026-11-14 — Search from Porog
 
 ### Added

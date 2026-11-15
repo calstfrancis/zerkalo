@@ -39,6 +39,7 @@ mod library;
 mod library_export;
 mod library_restore;
 mod lsp;
+mod new_document;
 mod poetry;
 mod porog_status;
 mod preview_text;
@@ -85,6 +86,19 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    // `--new-document=TITLE` makes the file, then starts as if that file had been the argument.
+    let mut argv: Vec<String> = env::args().collect();
+    if let Some(title) = args
+        .first()
+        .and_then(|a| a.strip_prefix(new_document::FLAG))
+    {
+        let Some(path) = new_document::create(title) else {
+            eprintln!("zerkalo: could not create a document for {title:?}");
+            return ExitCode::FAILURE;
+        };
+        argv = vec![argv[0].clone(), path.to_string_lossy().into_owned()];
+    }
+
     // ── Logging: persistent file + stderr ────────────────────────────────────
     let log_dir = crate::config::zerkalo_data_dir();
     std::fs::create_dir_all(&log_dir).ok();
@@ -127,6 +141,8 @@ fn main() -> ExitCode {
                FILE           .typ file to open on startup\n\
              \n\
              Options:\n\
+               --new-document=TITLE
+                              Create a blank document named TITLE in the work folder and open it\n\
                -h, --help     Print this help message\n\
                --version      Print version\n\
              \n\
@@ -144,8 +160,9 @@ fn main() -> ExitCode {
 
     fonts::ensure_gost_font();
 
-    let initial_file: Option<PathBuf> = env::args()
-        .nth(1)
+    let initial_file: Option<PathBuf> = argv
+        .get(1)
+        .cloned()
         .map(|arg| {
             let path_str = if let Some(rest) = arg.strip_prefix("file://") {
                 percent_decode_uri(rest)
@@ -205,7 +222,7 @@ fn main() -> ExitCode {
     });
 
     // _guard is kept alive here until app.run() returns, ensuring logs are flushed.
-    app.run_with_args(&env::args().collect::<Vec<_>>())
+    app.run_with_args(&argv)
 }
 
 /// Migrates the old config-dir location, retires stale recovery copies, and
