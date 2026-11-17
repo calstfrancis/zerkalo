@@ -168,6 +168,8 @@ modules:
       - strip /app/bin/zerkalo
       - printf '#!/bin/sh\nexec /app/bin/zerkalo --search-json "$@"\n' > zerkalo-search
       - install -Dm755 zerkalo-search /app/bin/zerkalo-search
+      - printf '#!/bin/sh\nexec /app/bin/zerkalo --whats-new-json "$@"\n' > zerkalo-whats-new
+      - install -Dm755 zerkalo-whats-new /app/bin/zerkalo-whats-new
       # Clean up build artifacts before finalising the module state
       - rm -rf /app/zerkalo-cargo-vendor /app/zerkalo-cargo-target ./writable-cargo-target
       - install -Dm755 tinymist-bin/tinymist /app/lib/zerkalo/tinymist

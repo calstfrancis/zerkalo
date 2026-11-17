@@ -86,6 +86,11 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    if args.first().map(String::as_str) == Some("--whats-new-json") {
+        println!("{}", whats_new::porog_reply());
+        return ExitCode::SUCCESS;
+    }
+
     // `--new-document=TITLE` makes the file, then starts as if that file had been the argument.
     let mut argv: Vec<String> = env::args().collect();
     if let Some(title) = args

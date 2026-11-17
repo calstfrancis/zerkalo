@@ -9,6 +9,14 @@
 
 const CHANGELOG: &str = include_str!("../CHANGELOG.md");
 
+/// What `zerkalo --whats-new-json` prints for Porog's What's New icon: the newest released
+/// entry of this very `CHANGELOG.md`, as one line of JSON.
+pub fn porog_reply() -> String {
+    fond_status::whats_new::from_changelog(CHANGELOG)
+        .map(|w| w.to_json())
+        .unwrap_or_else(|| r#"{"schema":1,"version":"","items":[]}"#.to_string())
+}
+
 /// One release, ready to show.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Release {
