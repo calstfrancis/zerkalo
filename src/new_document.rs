@@ -22,7 +22,10 @@ fn create_in(dir: &Path, title: &str) -> Option<PathBuf> {
         return None;
     }
     let stem = file_stem(title);
-    let path = dir.join(format!("{}.typ", if stem.is_empty() { "Untitled" } else { &stem }));
+    let path = dir.join(format!(
+        "{}.typ",
+        if stem.is_empty() { "Untitled" } else { &stem }
+    ));
     if path.is_file() {
         return Some(path);
     }
@@ -84,7 +87,10 @@ mod tests {
         let second = create_in(&dir, "Essay").unwrap();
         assert_eq!(first, dir.join("Essay.typ"));
         assert_eq!(second, first);
-        assert_eq!(fs::read_to_string(&second).unwrap(), "= Essay\n\nMy draft.\n");
+        assert_eq!(
+            fs::read_to_string(&second).unwrap(),
+            "= Essay\n\nMy draft.\n"
+        );
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         let _ = fs::remove_dir_all(&dir);
     }

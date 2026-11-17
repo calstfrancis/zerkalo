@@ -1,9 +1,13 @@
-<!-- zerkalo-release: 0.59.0 -->
+<!-- zerkalo-release: 0.60.0 -->
 ### What's new
 
-Porog can start an essay in Zerkalo, and nothing else changes.
+Zerkalo is better at helping Porog get you back into your work.
 
-**New document from Porog.** When Sputnik's current item is a paper assignment, Porog's Now card offers *New essay*. It makes a blank `.typ` file in your work folder named for the course and assignment (a free name if one is taken), with the title as its first heading, and opens it. Zerkalo does this through a new `--new-document=TITLE` option that reads only your work folder setting: no keyring, nothing else touched. Nothing changes in how Zerkalo looks or works.
+**Where you were.** When you leave Zerkalo or close it, it notes the heading above your cursor and the start of the sentence you were in, such as `Method · "…the second argument fails because"`. Porog shows that line under your document, so a file name is no longer all you have to go on.
+
+**No second copy.** Asking Zerkalo for a document by title (Porog's *Write essay* button does) now opens it if it exists, and only makes a blank one if it does not.
+
+**What's new, from Porog.** Porog can show this list from the icon on Zerkalo's row.
 
 ---
 

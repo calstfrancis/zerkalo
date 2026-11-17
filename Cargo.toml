@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.59.0"
+version = "0.60.0"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -40,10 +40,10 @@ skrizhal-core = { git = "https://github.com/calstfrancis/skrizhal", tag = "v0.4.
 # integration with a Kartoteka vault as a live bibliography source (no
 # "acquire" feature — that pulls in reqwest/tokio for DOI/ISBN lookup,
 # irrelevant here).
-fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.24.0" }
-fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.24.0" }
+fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.25.0" }
+fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.25.0" }
 # The Porog launcher's status file, from fond-core.
-fond-status = { git = "https://github.com/calstfrancis/fond-core", rev = "28d95c1491bdda6e708c04ce2768f89374e62338" }
+fond-status = { git = "https://github.com/calstfrancis/fond-core", rev = "3364c34cb1f0bec978596270a753abb0e91ea398" }
 
 # Embedded Typst compiler
 typst = "0.15"

@@ -10,8 +10,14 @@ use fond_status::{ResumeEntry, Status};
 const APP: &str = "zerkalo";
 
 enum Msg {
-    Active { path: PathBuf, title: String },
-    Context { path: PathBuf, context: Option<String> },
+    Active {
+        path: PathBuf,
+        title: String,
+    },
+    Context {
+        path: PathBuf,
+        context: Option<String>,
+    },
     Flush(Sender<()>),
 }
 
@@ -71,21 +77,25 @@ pub fn context_from(text: &str, cursor: usize) -> Option<String> {
         let l = l.trim_start();
         !l.is_empty() && !l.starts_with('#') && !l.starts_with("//") && heading_of(l).is_none()
     });
-    let fragment = line.and_then(|line| {
+    let fragment = line.map(|line| {
         let start = [". ", "? ", "! "]
             .iter()
             .filter_map(|b| line.rfind(b).map(|i| i + b.len()))
             .max()
             .unwrap_or(0);
         let sentence = line[start..].trim();
-        let sentence = if sentence.is_empty() { line.trim() } else { sentence };
+        let sentence = if sentence.is_empty() {
+            line.trim()
+        } else {
+            sentence
+        };
         let count = sentence.chars().count();
-        Some(if count > FRAGMENT {
+        if count > FRAGMENT {
             let tail: String = sentence.chars().skip(count - FRAGMENT).collect();
             format!("\"…{}\"", tail.trim_start())
         } else {
             format!("\"{sentence}\"")
-        })
+        }
     });
     let joined = match (heading, fragment) {
         (Some(h), Some(f)) => format!("{h} · {f}"),
