@@ -11,6 +11,7 @@ const APP: &str = "zerkalo";
 
 enum Msg {
     Active { path: PathBuf, title: String },
+    Context { path: PathBuf, context: Option<String> },
     Flush(Sender<()>),
 }
 
@@ -38,6 +39,63 @@ pub fn active(path: &Path, title: &str) {
     }
 }
 
+/// Say where in `path` the cursor is, as one line. Sent when the window loses focus and when
+/// it closes, which is when the user is about to go somewhere else.
+pub fn set_context(path: &Path, context: Option<String>) {
+    if let Some(tx) = worker() {
+        let _ = tx.send(Msg::Context {
+            path: path.to_path_buf(),
+            context,
+        });
+    }
+}
+
+/// The line that says where the cursor is: the heading above it, then the sentence it is in,
+/// up to the cursor — `Method · "…the second argument fails because"`. `cursor` is a character
+/// offset. Typst code lines (`#…`) and comments are skipped; `None` when there is no prose yet.
+pub fn context_from(text: &str, cursor: usize) -> Option<String> {
+    const FRAGMENT: usize = 70;
+    let before: String = text.chars().take(cursor).collect();
+    let heading_of = |line: &str| -> Option<String> {
+        let line = line.trim_start();
+        let marks = line.chars().take_while(|c| *c == '=').count();
+        let rest = line[marks..].strip_prefix(' ')?;
+        (marks > 0).then(|| rest.trim().to_string())
+    };
+    let heading = before
+        .lines()
+        .rev()
+        .find_map(heading_of)
+        .filter(|h| !h.is_empty());
+    let line = before.rsplit('\n').find(|l| {
+        let l = l.trim_start();
+        !l.is_empty() && !l.starts_with('#') && !l.starts_with("//") && heading_of(l).is_none()
+    });
+    let fragment = line.and_then(|line| {
+        let start = [". ", "? ", "! "]
+            .iter()
+            .filter_map(|b| line.rfind(b).map(|i| i + b.len()))
+            .max()
+            .unwrap_or(0);
+        let sentence = line[start..].trim();
+        let sentence = if sentence.is_empty() { line.trim() } else { sentence };
+        let count = sentence.chars().count();
+        Some(if count > FRAGMENT {
+            let tail: String = sentence.chars().skip(count - FRAGMENT).collect();
+            format!("\"…{}\"", tail.trim_start())
+        } else {
+            format!("\"{sentence}\"")
+        })
+    });
+    let joined = match (heading, fragment) {
+        (Some(h), Some(f)) => format!("{h} · {f}"),
+        (Some(h), None) => h,
+        (None, Some(f)) => f,
+        (None, None) => return None,
+    };
+    fond_status::context_line(&joined)
+}
+
 pub fn flush() {
     if let Some(tx) = worker() {
         let (done, wait) = mpsc::channel();
@@ -57,6 +115,24 @@ fn run(dir: &Path, rx: mpsc::Receiver<Msg>) {
     for msg in rx {
         let (path, title) = match msg {
             Msg::Active { path, title } => (path, title),
+            Msg::Context { path, context } => {
+                let Some(arg) = path.to_str() else { continue };
+                let Some(entry) = status
+                    .resume
+                    .iter_mut()
+                    .find(|e| e.args.first().map(String::as_str) == Some(arg))
+                else {
+                    continue;
+                };
+                if entry.context != context {
+                    entry.context = context;
+                    status.written = fond_status::now_utc();
+                    if let Err(e) = status.write(dir) {
+                        eprintln!("zerkalo: could not write the Porog status file: {e}");
+                    }
+                }
+                continue;
+            }
             Msg::Flush(done) => {
                 let _ = done.send(());
                 continue;
@@ -100,6 +176,7 @@ fn entry_for(path: &Path, title: &str) -> Option<ResumeEntry> {
         title,
         detail,
         at: None,
+        context: None,
         args: vec![arg],
     })
 }
@@ -130,6 +207,48 @@ mod tests {
         let untitled = entry_for(&file, "essay-2").unwrap();
         assert_eq!(untitled.title, "essay-2.typ");
         assert_eq!(untitled.detail, None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_context_is_the_heading_and_the_sentence_at_the_cursor() {
+        let text = "= Essay\n\n== Method\n\n#let x = 1\nWe begin. The second argument fails because it assumes";
+        assert_eq!(
+            context_from(text, text.chars().count()).as_deref(),
+            Some("Method · \"The second argument fails because it assumes\"")
+        );
+        assert_eq!(context_from("", 0), None);
+        assert_eq!(context_from("= Title\n\n", 10).as_deref(), Some("Title"));
+        let long = format!("= H\n{}", "word ".repeat(40));
+        let c = context_from(&long, long.chars().count()).unwrap();
+        assert!(c.starts_with("H · \"…") && c.chars().count() <= fond_status::MAX_CONTEXT);
+    }
+
+    #[test]
+    fn a_context_update_goes_to_the_matching_entry_only() {
+        let dir = scratch("context");
+        let a = dir.join("a.typ");
+        let b = dir.join("b.typ");
+        std::fs::write(&a, "").unwrap();
+        std::fs::write(&b, "").unwrap();
+        let status_dir = dir.join("status");
+        let (tx, rx) = mpsc::channel();
+        let active = |path: &Path| Msg::Active {
+            path: path.to_path_buf(),
+            title: String::new(),
+        };
+        tx.send(active(&a)).unwrap();
+        tx.send(active(&b)).unwrap();
+        tx.send(Msg::Context {
+            path: a.clone(),
+            context: Some("Method".into()),
+        })
+        .unwrap();
+        drop(tx);
+        run(&status_dir, rx);
+        let status = Status::read(&status_dir, APP).unwrap().unwrap();
+        assert_eq!(status.resume[1].context.as_deref(), Some("Method"));
+        assert_eq!(status.resume[0].context, None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -2174,6 +2174,15 @@ impl EditorPane {
             .collect()
     }
 
+    /// Where the cursor is in `path`, as one line for the Porog status file.
+    pub fn porog_context(&self, path: &PathBuf) -> Option<String> {
+        let state = self.state.borrow();
+        let tab = state.tabs.get(path)?;
+        let buffer = &tab.buffer;
+        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+        crate::porog_status::context_from(&text, usize::try_from(buffer.cursor_position()).ok()?)
+    }
+
     pub fn restore_cursor(&self, path: &PathBuf, offset: i32) {
         let state = self.state.borrow();
         if let Some(tab) = state.tabs.get(path) {

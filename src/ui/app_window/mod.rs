@@ -3504,6 +3504,18 @@ impl AppWindow {
         let project_root_for_close = self.project_root.clone();
         let sync_badge_for_close = self.sync_badge.clone();
 
+        // Leaving the window is when a way back in is wanted: say where the cursor was.
+        self.window.connect_is_active_notify({
+            let ep = ep.clone();
+            move |window| {
+                if !window.is_active() {
+                    if let Some(path) = ep.get_active_path() {
+                        crate::porog_status::set_context(&path, ep.porog_context(&path));
+                    }
+                }
+            }
+        });
+
         self.window.connect_close_request(move |_| {
             crate::activity::flush();
             // Stage 1: an unsaved-buffer dialog resolves into a second call
@@ -3639,7 +3651,10 @@ impl AppWindow {
             let open_files = ep.get_open_paths_ordered();
             let active_file = ep.get_active_path();
             let cursor_positions = ep.get_cursor_positions();
-            Session { open_files, active_file, cursor_positions }.save();
+            Session { open_files, active_file: active_file.clone(), cursor_positions }.save();
+            if let Some(path) = active_file {
+                crate::porog_status::set_context(&path, ep.porog_context(&path));
+            }
             crate::porog_status::flush();
             glib::Propagation::Proceed
         });
