@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.61.1] "Mended Seam" — 2026-11-17 — Security fix in the bundled zlib
+
+### Security
+
+- **Updated `libz-sys` to 1.1.33**, fixing a heap buffer overflow (RUSTSEC-2026-0544) in the zlib compression library that libgit2 — which Zerkalo uses to set up projects and read Kartoteka vaults — is built with. Nothing else changes.
+
 ## [0.61.0] "Counted Folio" — 2026-11-17 — Body pages and a page limit
 
 ### Added

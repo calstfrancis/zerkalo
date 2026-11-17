@@ -88,6 +88,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.61.1" date="2026-11-17">
+      <description>
+        <p>0.61.1 "Mended Seam" — a security fix: the zlib compression library built into Zerkalo's git library is updated to close a heap buffer overflow. Nothing else changes.</p>
+      </description>
+    </release>
     <release version="0.61.0" date="2026-11-17">
       <description>
         <p>0.61.0 "Counted Folio" — the preview's page counter now also shows how many pages are body text, leaving out the title page, contents, references and appendices, and you can set a page limit (in Settings or per document) that turns the counter orange when the body runs over.</p>
