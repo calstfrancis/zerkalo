@@ -166,6 +166,9 @@ pub struct Config {
     pub high_contrast: bool,
     #[serde(default)]
     pub word_count_goal: u32,
+    /// Body pages allowed, shown against the preview's page count; 0 for none.
+    #[serde(default)]
+    pub page_limit: u32,
     /// The hamburger's "GOST Type B font" toggle. Every other toggle in that
     /// menu persists; this one used to reset on every launch.
     #[serde(default)]
@@ -543,6 +546,7 @@ impl Default for Config {
             typewriter_scrolling: false,
             high_contrast: false,
             word_count_goal: 0,
+            page_limit: 0,
             gost_font: false,
             sidebar_width: default_sidebar_width(),
             preview_split: default_preview_split(),

@@ -287,6 +287,11 @@ impl SettingsDialog {
         word_count_goal_spin.set_subtitle(&tr("settings-word-count-goal-subtitle"));
         word_count_goal_spin.set_value(current.word_count_goal as f64);
 
+        let page_limit_spin = adw::SpinRow::with_range(0.0, 1000.0, 1.0);
+        page_limit_spin.set_title(&tr("settings-page-limit-title"));
+        page_limit_spin.set_subtitle(&tr("settings-page-limit-subtitle"));
+        page_limit_spin.set_value(current.page_limit as f64);
+
         // Document fonts. These used to be a step in setup, which put a font
         // choice between a first-time user and getting started — for a setting
         // whose defaults are already the right answer nearly always.
@@ -351,6 +356,7 @@ impl SettingsDialog {
         font_group.add(&typewriter_row);
         font_group.add(&high_contrast_row);
         font_group.add(&word_count_goal_spin);
+        font_group.add(&page_limit_spin);
 
         // Bibliography
         let bib_group = adw::PreferencesGroup::new();
@@ -1007,6 +1013,7 @@ impl SettingsDialog {
             let typewriter_row = typewriter_row.clone();
             let high_contrast_row = high_contrast_row.clone();
             let word_count_goal_spin = word_count_goal_spin.clone();
+            let page_limit_spin = page_limit_spin.clone();
             let spell_enabled_row = spell_enabled_row.clone();
             let selected_langs = selected_langs.clone();
             let batch_concurrency_row = batch_concurrency_row.clone();
@@ -1165,6 +1172,7 @@ impl SettingsDialog {
                     high_contrast: high_contrast_row.is_active(),
                     gost_font: gost_font_cur,
                     word_count_goal: word_count_goal_spin.value() as u32,
+                    page_limit: page_limit_spin.value() as u32,
                     sidebar_width: sidebar_width_cur,
                     preview_split: preview_split_cur,
                     sidebar_outline_split: sidebar_outline_split_cur,
@@ -1259,6 +1267,7 @@ impl SettingsDialog {
         wire_preview!(typewriter_row, connect_active_notify);
         wire_preview!(high_contrast_row, connect_active_notify);
         wire_preview!(word_count_goal_spin, connect_value_notify);
+        wire_preview!(page_limit_spin, connect_value_notify);
 
         let on_save_cb = on_save.clone();
         let bc_save = build_config.clone();

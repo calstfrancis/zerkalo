@@ -1092,6 +1092,23 @@ impl SyncMap {
             .get_or_init(|| crate::preview_text::TextLayer::extract(&self.doc))
     }
 
+    /// How the pages split into title, contents, body, bibliography and
+    /// appendices, with the page limit `root` sets for itself, if any.
+    pub fn page_parts(&self, root: &Path) -> crate::page_parts::PageParts {
+        let source = self.source_for_path(root);
+        let text = source.as_ref().map(|s| s.text());
+        let title_end = text
+            .and_then(crate::page_parts::generated_title_end)
+            .and_then(|byte| {
+                let t = text?;
+                let chars = t.get(..byte)?.chars().count();
+                self.page_point_for(root, chars).map(|(page, _, _)| page)
+            });
+        let mut parts = crate::page_parts::analyze(&self.doc, title_end);
+        parts.own_limit = text.and_then(crate::page_parts::parse_limit_comment);
+        parts
+    }
+
     /// The source file and character offset behind the point `(x_pt, y_pt)`
     /// on page `page` (0-based), if something there came from source.
     ///

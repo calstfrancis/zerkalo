@@ -3,6 +3,17 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.61.0] "Counted Folio" — 2026-11-17 — Body pages and a page limit
+
+### Added
+
+- **Body page count.** The preview's page counter now also says how many pages are body text — `3 / 12 · 9 body` — leaving out the title page, table of contents, references and appendices. A page the body shares with the references counts as body, the way page limits are read. Hover for the breakdown ("12 pages: 1 title page, 9 body, 2 reference pages"). Documents Zerkalo generated are understood as they are, title page and all; in your own, `<body-start>` marks where the body begins after a title page and `<appendices>` marks appendices whose headings don't start with "Appendix". The extra number only appears when it differs from the total.
+- **Page limit.** Settings → Page limit, or a `// @zerkalo-page-limit: 10` line near the top of a document for that document alone. The counter reads `9 of 10 body`, the tooltip says how many pages are to spare, and it turns orange once the body runs over.
+
+### Fixed
+
+- The README told you to write `// @goal: 3000` for a word-count goal; the line Zerkalo reads is `// @zerkalo-goal: 3000`.
+
 ## [0.60.0] "Held Thread" — 2026-11-17 — Where you were, for Porog
 
 ### Added

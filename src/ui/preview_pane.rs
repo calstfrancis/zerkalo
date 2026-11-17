@@ -30,6 +30,7 @@ enum CompileResult {
         String,
         std::time::Duration,
         Box<crate::compiler::SyncMap>,
+        crate::page_parts::PageParts,
     ),
     Error(String, std::time::Duration),
 }
@@ -57,7 +58,11 @@ pub struct PreviewPane {
     spin_lbl: Label,
     compile_start_instant: Rc<RefCell<Option<Instant>>>,
     on_zoom_changed: Rc<RefCell<Option<Box<dyn Fn(f64)>>>>,
-    on_page_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize)>>>>,
+    on_page_changed: Rc<RefCell<Option<Box<dyn Fn(&crate::page_parts::Indicator)>>>>,
+    /// The last successful compile's split into title, body, references…
+    page_parts: Rc<Cell<Option<crate::page_parts::PageParts>>>,
+    /// The page limit from Settings, for documents without their own.
+    default_page_limit: Rc<Cell<u32>>,
     on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>>,
     on_word_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64, f64)>>>>,
     on_source_jump: Rc<RefCell<Option<Box<dyn Fn(PathBuf, usize)>>>>,
@@ -685,6 +690,8 @@ impl PreviewPane {
             compile_start_instant: Rc::new(RefCell::new(None)),
             on_zoom_changed: Rc::new(RefCell::new(None)),
             on_page_changed: Rc::new(RefCell::new(None)),
+            page_parts: Rc::new(Cell::new(None)),
+            default_page_limit: Rc::new(Cell::new(0)),
             on_click_jump,
             on_word_click_jump,
             on_source_jump,
@@ -1085,8 +1092,13 @@ impl PreviewPane {
         *self.on_zoom_changed.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_page_changed(&self, f: impl Fn(usize, usize) + 'static) {
+    pub fn set_on_page_changed(&self, f: impl Fn(&crate::page_parts::Indicator) + 'static) {
         *self.on_page_changed.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn apply_page_limit(&self, limit: u32) {
+        self.default_page_limit.set(limit);
+        self.fire_page_changed();
     }
 
     pub fn set_on_click_jump(&self, f: impl Fn(usize, f64) + 'static) {
@@ -1197,8 +1209,18 @@ impl PreviewPane {
         let current = self.current_page_idx();
         let total = self.page_count();
         if total > 0 {
+            let parts = self
+                .page_parts
+                .get()
+                .filter(|p| p.total == total)
+                .unwrap_or(crate::page_parts::PageParts {
+                    total,
+                    ..Default::default()
+                });
+            let indicator =
+                crate::page_parts::indicator(current, Some(&parts), self.default_page_limit.get());
             if let Some(f) = self.on_page_changed.borrow().as_ref() {
-                f(current, total);
+                f(&indicator);
             }
         }
     }
@@ -1350,7 +1372,8 @@ impl PreviewPane {
             let elapsed = t0.elapsed();
             tx.send(match result {
                 Ok((pages, warnings, sync)) => {
-                    CompileResult::Success(pages, warnings, elapsed, Box::new(sync))
+                    let parts = sync.page_parts(&root);
+                    CompileResult::Success(pages, warnings, elapsed, Box::new(sync), parts)
                 }
                 Err(msg) => CompileResult::Error(msg, elapsed),
             })
@@ -1375,8 +1398,9 @@ impl PreviewPane {
                     pane.spinner.set_spinning(false);
                     pane.cancel_btn.set_visible(false);
                     match result {
-                        CompileResult::Success(pages, warnings, elapsed, sync) => {
+                        CompileResult::Success(pages, warnings, elapsed, sync, parts) => {
                             *pane.sync.borrow_mut() = Some((*sync, ppp_for_sync));
+                            pane.page_parts.set(Some(parts));
                             *pane.selection.borrow_mut() = None;
                             *pane.flash.borrow_mut() = None;
                             pane.load_pixbufs_from_pages(pages);

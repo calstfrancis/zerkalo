@@ -53,6 +53,8 @@ settings-high-contrast-title = High contrast
 settings-high-contrast-subtitle = Stronger text and outlines in the editor, easier on tired eyes
 settings-word-count-goal-title = Word count goal
 settings-word-count-goal-subtitle = A gentle progress ring in the status bar. Leave at 0 to hide it.
+settings-page-limit-title = Page limit
+settings-page-limit-subtitle = Body pages allowed — not counting the title page, contents, references or appendices. The preview's page count turns orange past it. Leave at 0 for none; a "// @zerkalo-page-limit: 10" line at the top of a document sets its own.
 
 ## Document Fonts
 

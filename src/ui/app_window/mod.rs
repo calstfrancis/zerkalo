@@ -341,6 +341,7 @@ impl AppWindow {
         editor_pane.apply_line_spacing(config.editor_line_spacing);
         editor_pane.apply_typewriter_scroll(config.typewriter_scrolling);
         editor_pane.apply_word_count_goal(config.word_count_goal);
+        preview_pane.apply_page_limit(config.page_limit);
         editor_pane.set_spell_enabled(config.spell_enabled);
         editor_pane.set_spell_autocorrect(config.spell_autocorrect);
         editor_pane.set_spell_languages(config.spell_languages.clone());
@@ -1904,8 +1905,17 @@ impl AppWindow {
         // Page navigation wiring
         {
             let lbl = page_label.clone();
-            preview_pane.set_on_page_changed(move |current, total| {
-                lbl.set_text(&format!("{} / {}", current + 1, total));
+            preview_pane.set_on_page_changed(move |ind| {
+                lbl.set_text(&ind.text);
+                lbl.set_tooltip_text((!ind.tooltip.is_empty()).then_some(ind.tooltip.as_str()));
+                lbl.update_property(&[gtk4::accessible::Property::Description(&ind.tooltip)]);
+                if ind.over {
+                    lbl.remove_css_class("dim-label");
+                    lbl.add_css_class("warning");
+                } else {
+                    lbl.remove_css_class("warning");
+                    lbl.add_css_class("dim-label");
+                }
             });
         }
         {

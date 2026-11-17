@@ -171,7 +171,9 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         {
             let editor_p = editor.clone();
             let win_p = window_for_save.clone();
+            let preview_p = preview_for_save.clone();
             dialog.set_on_preview(move |cfg| {
+                preview_p.apply_page_limit(cfg.page_limit);
                 editor_p.apply_font_size(cfg.editor_font_size);
                 editor_p.apply_font_family(&cfg.editor_font_family);
                 editor_p.apply_show_whitespace(cfg.editor_show_whitespace);
@@ -198,6 +200,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             editor.apply_line_spacing(new_cfg.editor_line_spacing);
             editor.apply_typewriter_scroll(new_cfg.typewriter_scrolling);
             editor.apply_word_count_goal(new_cfg.word_count_goal);
+            preview_for_save.apply_page_limit(new_cfg.page_limit);
             editor.set_spell_enabled(new_cfg.spell_enabled);
             editor.set_spell_autocorrect(new_cfg.spell_autocorrect);
             editor.set_spell_languages(new_cfg.spell_languages.clone());

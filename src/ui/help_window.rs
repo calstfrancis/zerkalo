@@ -77,6 +77,11 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("Preview & Cheatsheet"),
         Block::Body("The toggle button (?) in the preview toolbar switches the right panel between the live preview and a two-tab reference view (Cheatsheet + Help). Compilation continues in the background regardless."),
+        Block::H2("Page count and page limit"),
+        Block::Body("The page counter under the preview shows where you are and how many pages there are, and — when a document has a title page, table of contents, references or appendices — how many of them are body pages: \"3 / 12 · 9 body\". A page the body shares with the references still counts as body, the way page limits are read. Hover over it for the breakdown. To track a page limit, set one in Settings → Page limit, or put a line like this near the top of a document for that document alone:"),
+        Block::Code("// @zerkalo-page-limit: 10"),
+        Block::Body("The counter then reads \"9 of 10 body\" and turns orange once the body runs over. Documents Zerkalo made are understood as they are. In a document you set up yourself, mark the first heading after the title page with <body-start>, and appendices whose headings don't start with \"Appendix\" with <appendices>:"),
+        Block::Code("= Introduction <body-start>\n…\n= Survey Questions <appendices>"),
     ]
 }
 

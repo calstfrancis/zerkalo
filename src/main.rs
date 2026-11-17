@@ -40,6 +40,7 @@ mod library_export;
 mod library_restore;
 mod lsp;
 mod new_document;
+mod page_parts;
 mod poetry;
 mod porog_status;
 mod preview_text;
