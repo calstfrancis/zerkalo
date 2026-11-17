@@ -275,7 +275,7 @@ Configurable keys are remapped in `~/.config/zerkalo/keybindings.toml`; the rest
 
 ## Porog
 
-`zerkalo --search-json WORDS` (flatpak command `zerkalo-search`) lists the `.typ` files in the work folder that match, and `zerkalo --new-document=TITLE` creates a blank document named TITLE there and opens it. Both are for the Porog launcher.
+`zerkalo --search-json WORDS` (flatpak command `zerkalo-search`) lists the `.typ` files in the work folder that match, and `zerkalo --new-document=TITLE` opens the document named TITLE there, making it blank first if it is not there yet. Both are for the Porog launcher.
 
 ## Porog status file
 

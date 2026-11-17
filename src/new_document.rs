@@ -1,5 +1,7 @@
-//! `zerkalo --new-document=TITLE`: a blank document named for TITLE in the work folder, opened
-//! at startup like any file argument. Porog's "New essay" action starts Zerkalo this way.
+//! `zerkalo --new-document=TITLE`: the document named for TITLE in the work folder, opened at
+//! startup like any file argument. It is made blank if it is not there yet and opened as it is
+//! if it is, so asking twice never makes a second file. Porog's "Write essay" action starts
+//! Zerkalo this way.
 //!
 //! It runs before GTK, so like the search helper it reads only `work_dir` from the config.
 
@@ -19,9 +21,12 @@ fn create_in(dir: &Path, title: &str) -> Option<PathBuf> {
     if title.is_empty() {
         return None;
     }
+    let stem = file_stem(title);
+    let path = dir.join(format!("{}.typ", if stem.is_empty() { "Untitled" } else { &stem }));
+    if path.is_file() {
+        return Some(path);
+    }
     fs::create_dir_all(dir).ok()?;
-    let name = crate::ui::name_prompt::suggest_free_name(dir, &file_stem(title));
-    let path = dir.join(format!("{name}.typ"));
     fs::write(&path, format!("= {title}\n\n")).ok()?;
     Some(path)
 }
@@ -72,12 +77,15 @@ mod tests {
     }
 
     #[test]
-    fn a_second_document_with_the_same_title_gets_the_next_free_name() {
+    fn asking_again_opens_the_same_document_without_touching_it() {
         let dir = scratch("twice");
         let first = create_in(&dir, "Essay").unwrap();
+        fs::write(&first, "= Essay\n\nMy draft.\n").unwrap();
         let second = create_in(&dir, "Essay").unwrap();
         assert_eq!(first, dir.join("Essay.typ"));
-        assert_eq!(second, dir.join("Essay 2.typ"));
+        assert_eq!(second, first);
+        assert_eq!(fs::read_to_string(&second).unwrap(), "= Essay\n\nMy draft.\n");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         let _ = fs::remove_dir_all(&dir);
     }
 

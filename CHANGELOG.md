@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **`--new-document=TITLE` opens the document if it is already there.** It used to take the next free name ("Essay 2.typ") every time it was asked, so Porog's button made a new file on every click. Now an existing document of that name is opened untouched, and a blank one is made only when there is none.
+
 ## [0.59.0] "Clean Slate" — 2026-11-15 — New document from Porog
 
 ### Added
