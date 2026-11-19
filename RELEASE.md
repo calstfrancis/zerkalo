@@ -1,11 +1,9 @@
-<!-- zerkalo-release: 0.61.1 -->
+<!-- zerkalo-release: 0.61.2 -->
 ### What's new
 
-A security fix, and nothing else.
+Apostrophes that point the right way.
 
-**Updated zlib.** Zerkalo uses libgit2 to set up projects and to read Kartoteka vaults, and libgit2 is built with the zlib compression library. A heap buffer overflow was found in that library (RUSTSEC-2026-0544), and this release updates it to the fixed version. Nothing you see or do in Zerkalo changes.
-
-For what 0.61.0 added (a body page count and a page limit), see the changelog.
+**Apostrophes after brackets.** In writing like "(USA)'s", "[sic]'s", "the U.S.'s" or a citation followed by 's, the apostrophe used to print as an opening quote, which looks like a backwards comma and stands out in some fonts. After a number, as in "1990's", it printed as a prime mark instead. The cause is in Typst, which picks a quote's shape from the character just before it. Zerkalo now sets these as a proper apostrophe in the preview, the PDF and the Word, HTML and EPUB exports. Real quotation marks, code and maths are left alone, and so is any document that sets its own `smartquote` rules.
 
 ---
 

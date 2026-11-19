@@ -88,6 +88,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.61.2" date="2026-11-19">
+      <description>
+        <p>0.61.2 "Raised Comma" — apostrophes that follow a bracket, full stop, digit, closing quote or citation, as in "(USA)'s" or "1990's", now print as a proper apostrophe instead of a backwards opening quote or a prime.</p>
+      </description>
+    </release>
     <release version="0.61.1" date="2026-11-17">
       <description>
         <p>0.61.1 "Mended Seam" — a security fix: the zlib compression library built into Zerkalo's git library is updated to close a heap buffer overflow. Nothing else changes.</p>

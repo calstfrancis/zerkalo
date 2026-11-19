@@ -713,12 +713,21 @@ impl typst::World for ZerkaloWorld {
                 }
             }
         }
+        let user_file = !matches!(id.root(), VirtualRoot::Package(_));
+        let source = |text: String| {
+            let text = if user_file {
+                crate::apostrophes::fix(&text).unwrap_or(text)
+            } else {
+                text
+            };
+            Source::new(id, text)
+        };
         let result = self.resolve(id).and_then(|path| {
             if let Some(text) = self.overrides.get(&path) {
-                return Ok(Source::new(id, text.clone()));
+                return Ok(source(text.clone()));
             }
             std::fs::read_to_string(&path)
-                .map(|text| Source::new(id, text))
+                .map(source)
                 .map_err(|_| FileError::NotFound(path))
         });
         poisoned_lock(&self.source_cache).insert(id, result.clone());

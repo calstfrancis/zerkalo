@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.61.2] "Raised Comma" — 2026-11-19 — Apostrophes after brackets
+
+### Fixed
+
+- **Apostrophes after a bracket, full stop, digit or citation.** Typst picks a quote's shape from the character before it, so in `(USA)'s`, `[sic]'s`, `U.S.'s`, `"Hamlet"'s` or `@doe2020's` the apostrophe came out as an opening quote (‘, like a backwards comma), and in `1990's` as a prime (′). A wrong opening quote could also flip the quotes after it in the same paragraph. These are now set as a proper ’ in the preview, PDF, Word, HTML and EPUB. Quotation marks, code, strings and math are left as they were, and a document that sets `smartquote` itself is left alone entirely.
+
 ## [0.61.1] "Mended Seam" — 2026-11-17 — Security fix in the bundled zlib
 
 ### Security

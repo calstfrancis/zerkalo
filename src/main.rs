@@ -5,6 +5,7 @@
 #![allow(clippy::type_complexity)]
 
 mod activity;
+mod apostrophes;
 mod assets;
 mod authors;
 mod auto_save;
