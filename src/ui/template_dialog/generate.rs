@@ -877,19 +877,19 @@ pub(crate) fn generate_header_only(s: &TemplateSettings) -> String {
     let _ = writeln!(
         out,
         "#let doc-title = \"{}\"",
-        typst_str(if s.title.is_empty() {
+        field_str(if s.title.is_empty() {
             "Untitled"
         } else {
             &s.title
         })
     );
-    let _ = writeln!(out, "#let doc-subtitle = \"{}\"", typst_str(&s.subtitle));
-    let _ = writeln!(out, "#let doc-author = \"{}\"", typst_str(&s.author));
-    let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
-    let _ = writeln!(out, "#let doc-course = \"{}\"", typst_str(&s.course));
-    let _ = writeln!(out, "#let doc-professor = \"{}\"", typst_str(&s.professor));
+    let _ = writeln!(out, "#let doc-subtitle = \"{}\"", field_str(&s.subtitle));
+    let _ = writeln!(out, "#let doc-author = \"{}\"", field_str(&s.author));
+    let _ = writeln!(out, "#let doc-affil = \"{}\"", field_str(&s.affiliation));
+    let _ = writeln!(out, "#let doc-course = \"{}\"", field_str(&s.course));
+    let _ = writeln!(out, "#let doc-professor = \"{}\"", field_str(&s.professor));
     let date_val = default_doc_date(s);
-    let _ = writeln!(out, "#let doc-date = \"{}\"", typst_str(&date_val));
+    let _ = writeln!(out, "#let doc-date = \"{}\"", field_str(&date_val));
     if let Some(hdr) = style_header_block(s) {
         let _ = writeln!(out, "{hdr}");
     }
@@ -909,19 +909,19 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
     let _ = writeln!(
         out,
         "#let doc-title = \"{}\"",
-        typst_str(if s.title.is_empty() {
+        field_str(if s.title.is_empty() {
             "Untitled"
         } else {
             &s.title
         })
     );
-    let _ = writeln!(out, "#let doc-subtitle = \"{}\"", typst_str(&s.subtitle));
-    let _ = writeln!(out, "#let doc-author = \"{}\"", typst_str(&s.author));
-    let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
-    let _ = writeln!(out, "#let doc-course = \"{}\"", typst_str(&s.course));
-    let _ = writeln!(out, "#let doc-professor = \"{}\"", typst_str(&s.professor));
+    let _ = writeln!(out, "#let doc-subtitle = \"{}\"", field_str(&s.subtitle));
+    let _ = writeln!(out, "#let doc-author = \"{}\"", field_str(&s.author));
+    let _ = writeln!(out, "#let doc-affil = \"{}\"", field_str(&s.affiliation));
+    let _ = writeln!(out, "#let doc-course = \"{}\"", field_str(&s.course));
+    let _ = writeln!(out, "#let doc-professor = \"{}\"", field_str(&s.professor));
     let date_val = default_doc_date(s);
-    let _ = writeln!(out, "#let doc-date = \"{}\"", typst_str(&date_val));
+    let _ = writeln!(out, "#let doc-date = \"{}\"", field_str(&date_val));
     if let Some(hdr) = style_header_block(s) {
         let _ = writeln!(out, "{hdr}");
     }
@@ -1085,19 +1085,19 @@ pub(crate) fn generate_letter_header(s: &TemplateSettings) -> String {
     let _ = writeln!(
         out,
         "#let doc-title = \"{}\"",
-        typst_str(if s.title.is_empty() {
+        field_str(if s.title.is_empty() {
             "Untitled"
         } else {
             &s.title
         })
     );
-    let _ = writeln!(out, "#let doc-subtitle = \"{}\"", typst_str(&s.subtitle));
-    let _ = writeln!(out, "#let doc-author = \"{}\"", typst_str(&s.author));
-    let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
-    let _ = writeln!(out, "#let doc-course = \"{}\"", typst_str(&s.course));
-    let _ = writeln!(out, "#let doc-professor = \"{}\"", typst_str(&s.professor));
+    let _ = writeln!(out, "#let doc-subtitle = \"{}\"", field_str(&s.subtitle));
+    let _ = writeln!(out, "#let doc-author = \"{}\"", field_str(&s.author));
+    let _ = writeln!(out, "#let doc-affil = \"{}\"", field_str(&s.affiliation));
+    let _ = writeln!(out, "#let doc-course = \"{}\"", field_str(&s.course));
+    let _ = writeln!(out, "#let doc-professor = \"{}\"", field_str(&s.professor));
     let date_val = default_doc_date(s);
-    let _ = writeln!(out, "#let doc-date = \"{}\"", typst_str(&date_val));
+    let _ = writeln!(out, "#let doc-date = \"{}\"", field_str(&date_val));
     if let Some(hdr) = header_block(s.header_style) {
         let _ = writeln!(out, "{hdr}");
     }

@@ -3,6 +3,16 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.61.3] "Curled Margin" — 2026-11-19 — Curly quotes everywhere
+
+### Fixed
+
+- **Curly quotes in references and citations.** Titles, names and publishers from a `.bib` file or a Kartoteka library printed exactly as typed — `O'Brien`, `Tom's Book: The "Real" Story` — with straight marks, in the reference list and in footnotes. They now print `O’Brien` and `Tom’s Book: The “Real” Story`. As in TeX, a `'` in a `.bib` reads as ’; paired `"`s become “…”. A footnote holding code keeps its straight quotes.
+- **Curly quotes on the title page.** The title, subtitle, author, affiliation, course, instructor and date fields are stored as Typst strings, which never get smart quotes, so an apostrophe or quotation mark there printed straight on the title page and in running headers. Apostrophes in these fields are now curled when the document is compiled, and the template dialog writes curly quotes into them from the start.
+- **Leading apostrophes.** `'tis`, `'twas`, `'em`, `rock 'n' roll` and two-digit years like `the '90s` or `class of '22` came out with a backwards opening quote (‘tis); they now get a proper ’.
+- **An apostrophe inside single quotation marks no longer ends the quotation.** In German-style quoting, `'Kant's Werk'` came out as ‚Kant‘s Werk’; it now reads ‚Kant’s Werk‘.
+- **A possessive after punctuation.** `the U.S.' policy` printed an opening quote; it now prints an apostrophe.
+
 ## [0.61.2] "Raised Comma" — 2026-11-19 — Apostrophes after brackets
 
 ### Fixed

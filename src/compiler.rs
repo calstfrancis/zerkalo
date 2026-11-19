@@ -278,6 +278,24 @@ const SPLIT_NOTE_CITES: &str = r#"#let zk-note-style() = {
 }
 "#;
 
+/// Bibliography and citation text comes from `.bib` or Kartoteka data as plain
+/// text, which Typst never gives smart quotes: `O'Brien`, `Tom's Book: The
+/// "Real" Story` printed with straight marks. In a `.bib` a `'` means ’, as it
+/// does in TeX; paired `"`s become “…”. A note style's citation becomes a
+/// footnote built outside the `cite` rule's reach, so footnotes get the same
+/// rule — except one holding code, whose quotes must stay straight. Quotes the
+/// writer typed in a footnote are smart-quote elements, not text, so the rule
+/// never sees them.
+const BIB_QUOTES: &str = r#"#let zk-curly(body) = {
+  show regex("\"[^\"]*\""): it => "\u{201C}" + it.text.slice(1, -1) + "\u{201D}"
+  show "'": "\u{2019}"
+  body
+}
+#show bibliography: zk-curly
+#show cite: zk-curly
+#show footnote.entry: it => if "raw(" in repr(it.note.body) { it } else { zk-curly(it) }
+"#;
+
 /// Extra rules for a Word export compile (`ZerkaloWorld::export`). Page-layout
 /// constructs HTML output drops wholesale are unwrapped to their content (`columns`
 /// otherwise takes everything inside it along). HTML output also keeps only semantic
@@ -317,7 +335,7 @@ fn wrapper_source(
     let export_rules = if export { EXPORT_RULES } else { "" };
     let hidden_bib = hidden_bib.unwrap_or("");
     format!(
-        "#let zk-split = {split}\n#let zk-force-split = {force_split}\n#let zk-export = {export}\n{SPLIT_NOTE_CITES}{export_rules}#include \"{escaped}\"\n{hidden_bib}"
+        "#let zk-split = {split}\n#let zk-force-split = {force_split}\n#let zk-export = {export}\n{SPLIT_NOTE_CITES}{BIB_QUOTES}{export_rules}#include \"{escaped}\"\n{hidden_bib}"
     )
 }
 

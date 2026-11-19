@@ -51,6 +51,12 @@ pub(crate) fn typst_str(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// A title-page field typed in the dialog. It reaches the page as a Typst
+/// string, which never gets smart quotes, so they're curled here.
+pub(crate) fn field_str(s: &str) -> String {
+    typst_str(&crate::apostrophes::smarten_plain(s))
+}
+
 /// Every value below reaches the generated document as raw Typst source, so an
 /// unvalidated one doesn't produce an ugly document — it produces a document
 /// that doesn't compile at all, with an error pointing at generated code the
@@ -140,5 +146,18 @@ pub(crate) fn numbering_pattern(raw: &str) -> String {
         "1.".to_string()
     } else {
         typst_str(s)
+    }
+}
+
+#[cfg(test)]
+mod field_tests {
+    use super::field_str;
+
+    #[test]
+    fn title_page_fields_get_curly_quotes() {
+        assert_eq!(
+            field_str("Kant's \"Critique\" \\ more"),
+            "Kant’s “Critique” \\\\ more"
+        );
     }
 }

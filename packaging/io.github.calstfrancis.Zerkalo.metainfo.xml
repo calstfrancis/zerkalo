@@ -88,6 +88,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.61.3" date="2026-11-19">
+      <description>
+        <p>0.61.3 "Curled Margin" — curly quotes where they were still straight or backwards: in reference lists and citation footnotes, on the title page, in leading apostrophes like 'tis and the '90s, and in apostrophes inside single quotation marks.</p>
+      </description>
+    </release>
     <release version="0.61.2" date="2026-11-19">
       <description>
         <p>0.61.2 "Raised Comma" — apostrophes that follow a bracket, full stop, digit, closing quote or citation, as in "(USA)'s" or "1990's", now print as a proper apostrophe instead of a backwards opening quote or a prime.</p>
