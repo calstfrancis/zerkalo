@@ -88,6 +88,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.63.0" date="2026-11-20">
+      <description>
+        <p>0.63.0 "Careful Quill" — a spell check you can walk through. Shift+F7 steps through every misspelled word in the document, showing it in its sentence with suggestions, and lets you change it, change every one, skip it, skip every one, or add it to your dictionary or the project's. The wavy underline is also easier to see in dark mode.</p>
+      </description>
+    </release>
     <release version="0.62.0" date="2026-11-20">
       <description>
         <p>0.62.0 "Keen Glass" — a better find bar. Ctrl+F opens it and then steps to the next match, Ctrl+H adds replace, and searching as you type waits for three letters so long documents stay smooth. The current match is in your accent colour and centred, with marks beside the scrollbar and the preview following along. Searches ignore accents, become case-sensitive when you type a capital, and find phrases across line breaks; the count stays right as you edit. Replace All no longer touches text simple mode hides, and Find in files searches unsaved typing the same way.</p>

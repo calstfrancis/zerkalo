@@ -42,6 +42,7 @@ mod save;
 mod scroll_guards;
 mod simple_mode;
 mod spell;
+mod spell_walk;
 mod status_bar;
 mod tabs;
 mod wordcount;
@@ -1312,6 +1313,8 @@ impl EditorPane {
         };
         for buffer in &buffers {
             buffer.set_style_scheme(scheme.as_ref());
+            // The spelling underline has its own dark-mode colour.
+            ensure_spell_tag(buffer);
         }
     }
 

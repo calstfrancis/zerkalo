@@ -2911,6 +2911,7 @@ impl AppWindow {
                             backup_now(&sync_btn_for_pal),
                         ),
                         "check_spelling" => editor_for_pal.check_spelling_now(),
+                        "spell_walk" => editor_for_pal.open_spell_walk(window_for_pal.upcast_ref()),
                         "note_for_next_time" => {
                             if !config_for_pal.borrow().comfort.notes_for_next_time {
                                 toast_for_pal.say(adw::Toast::new(
@@ -3420,11 +3421,16 @@ impl AppWindow {
         let f7 = gtk4::EventControllerKey::new();
         f7.set_propagation_phase(gtk4::PropagationPhase::Capture);
         let editor_f7 = self.editor_pane.clone();
+        let window_f7 = self.window.clone();
         f7.connect_key_pressed(move |_, key, _, mods| {
-            if key == gtk4::gdk::Key::F7
-                && (mods & gtk4::accelerator_get_default_mod_mask()).is_empty()
-            {
+            let mods = mods & gtk4::accelerator_get_default_mod_mask();
+            if key == gtk4::gdk::Key::F7 && mods.is_empty() {
                 editor_f7.check_spelling_now();
+                return glib::Propagation::Stop;
+            }
+            // Shift+F7: the step-through spell check.
+            if key == gtk4::gdk::Key::F7 && mods == gtk4::gdk::ModifierType::SHIFT_MASK {
+                editor_f7.open_spell_walk(window_f7.upcast_ref());
                 return glib::Propagation::Stop;
             }
             glib::Propagation::Proceed

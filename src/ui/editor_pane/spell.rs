@@ -4,11 +4,21 @@ use super::*;
 
 pub(super) fn ensure_spell_tag(buffer: &Buffer) {
     let table = buffer.tag_table();
-    if table.lookup("zerkalo-spell").is_none() {
-        let tag = TextTag::new(Some("zerkalo-spell"));
-        tag.set_underline(gtk4::pango::Underline::Error);
-        tag.set_underline_rgba(Some(&gtk4::gdk::RGBA::new(0.22, 0.55, 0.97, 1.0)));
-        table.add(&tag);
+    // A deeper blue on light pages, a bright one on dark: the same blue that
+    // reads well on white all but vanishes against a dark page.
+    let colour = if adw::StyleManager::default().is_dark() {
+        gtk4::gdk::RGBA::new(0.45, 0.75, 1.0, 1.0)
+    } else {
+        gtk4::gdk::RGBA::new(0.12, 0.42, 0.90, 1.0)
+    };
+    match table.lookup("zerkalo-spell") {
+        Some(tag) => tag.set_underline_rgba(Some(&colour)),
+        None => {
+            let tag = TextTag::new(Some("zerkalo-spell"));
+            tag.set_underline(gtk4::pango::Underline::Error);
+            tag.set_underline_rgba(Some(&colour));
+            table.add(&tag);
+        }
     }
 }
 

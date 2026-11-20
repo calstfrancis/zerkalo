@@ -352,7 +352,12 @@ pub fn default_commands() -> Vec<PaletteItem> {
         PaletteItem {
             id: "check_spelling".into(),
             label: "Check spelling now".into(),
-            subtitle: "Underline every misspelled word in the open documents (F7)".into(),
+            subtitle: "Underline every misspelled word in the open documents (F7). Shift+F7 goes through them one by one".into(),
+        },
+        PaletteItem {
+            id: "spell_walk".into(),
+            label: "Spell check\u{2026}".into(),
+            subtitle: "Go through each misspelled word and decide what to do with it (Shift+F7)".into(),
         },
         PaletteItem {
             id: "writing_history".into(),

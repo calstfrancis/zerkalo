@@ -3,6 +3,16 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.63.0] "Careful Quill" — 2026-11-20 — A spell check you can walk through
+
+### Added
+
+- **Spell check, one word at a time.** Shift+F7 (or "Spell check…" in the command palette) opens a small window that goes through every misspelled word in the document: it shows the word in its sentence, selects it in the editor, and offers suggestions plus **Change**, **Change all**, **Skip**, **Skip all**, **Add to dictionary**, **Add to project dictionary** and **Back**. It works even with spell check switched off.
+
+### Changed
+
+- **The spelling underline is easier to see in dark mode.** It is a brighter blue on dark pages (and a slightly deeper one on light pages), and follows the theme when you switch.
+
 ## [0.62.0] "Keen Glass" — 2026-11-20 — A better find bar
 
 ### Added
