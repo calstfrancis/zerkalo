@@ -1,15 +1,13 @@
-<!-- zerkalo-release: 0.61.3 -->
+<!-- zerkalo-release: 0.61.4 -->
 ### What's new
 
-Curly quotes in the places that were still getting straight or backwards ones.
+Bibliographies that keep up with Kartoteka and Zotero.
 
-**References and citations.** Titles, names and publishers from your `.bib` file or Kartoteka library used to print exactly as typed, so "O'Brien" or a title with "quoted" words came out with straight typewriter marks, in the reference list and in footnotes. They now print with proper curly apostrophes and quotation marks. A footnote that contains code keeps its straight quotes.
+**Changes in Kartoteka reach your document.** Adding a date or fixing a title in Kartoteka showed up in Zerkalo's Citations panel but not in the preview or PDF, even after compiling again. The panel was reading the vault's sources live, while the compile read a summary file (`library.yml`) that Kartoteka didn't rewrite after every edit. Zerkalo now compiles from the sources themselves, so the panel and the document always agree. Kartoteka 0.26.1 also keeps that summary file current, for anything else that reads it.
 
-**The title page.** An apostrophe or quotation mark in the title, author, course or other title-page fields printed straight, because those fields are stored as plain text strings. They're curled now, and the template dialog writes them curly from the start.
+**The project's copy of your bibliography stays current.** When your bibliography lives outside the project, Zerkalo keeps a copy inside it (`references.bib` or `references.yaml`) so the document compiles on any computer. That copy was refreshed only for the bibliography named in Settings, so a document using your Zotero library while Settings named your Kartoteka vault never got updates. Each copy now follows its own original, and on the computer that has the original, the preview reads it directly.
 
-**Leading apostrophes.** Words that start with an apostrophe, such as 'tis, 'em, rock 'n' roll, the '90s and the class of '22, used to get an opening quote mark (‘) instead of an apostrophe (’). They're right now.
-
-**Apostrophes inside quotation marks.** In styles with different opening and closing quotes, such as German, an apostrophe inside single quotation marks used to end the quotation early. It no longer does.
+**No keystroke needed.** A Zotero auto-export or a Kartoteka edit used to sit unseen until you next typed something. With Auto compile on, the preview now updates by itself within about a second.
 
 ---
 

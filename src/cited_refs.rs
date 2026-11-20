@@ -117,7 +117,7 @@ pub fn export_cited(
     keys: &BTreeSet<String>,
     format: RefFormat,
 ) -> Result<CitedExport, String> {
-    let raw = std::fs::read_to_string(source)
+    let raw = crate::bib_live::read(source)
         .map_err(|e| format!("Couldn't read {}: {e}", source.display()))?;
     let is_yaml = source
         .extension()

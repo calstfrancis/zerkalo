@@ -40,7 +40,7 @@
       <li>Autosave — the document is saved a few seconds after you stop typing and whenever you switch away, compile, export or quit; toggle it in the status bar</li>
       <li>Export to PDF, HTML, Word (a version for InDesign with real footnotes and named styles, and one for Canva with endnotes), LaTeX, or EPUB into any folder you choose, optionally opening the result when done (PDF and EPUB in Pereplyot when installed); Ctrl+Shift+E for instant PDF export</li>
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles; in footnote styles, several citations in a row get one note each (marked ¹,²,³) or one combined note as the style specifies</li>
-      <li>BibTeX and Hayagriva YAML bibliography support, with project-wide citation key rename — a Kartoteka vault folder works as a live bibliography source too; export a .bib or .yaml holding only the references a document cites</li>
+      <li>BibTeX and Hayagriva YAML bibliography support, with project-wide citation key rename — a Kartoteka vault folder works as a live bibliography source too, and edits there or in a Zotero auto-export reach the preview within about a second; export a .bib or .yaml holding only the references a document cites</li>
       <li>Auto or manual compile with live preview (status-bar toggle, manual by default); scroll position preserved across recompiles</li>
       <li>Body page count beside the preview's page counter — title page, contents, references and appendices left out — with an optional page limit, set in Settings or per document, that turns the counter orange when the body runs over</li>
       <li>Exact preview ↔ editor sync — click anything in the preview to jump to that spot in the source, or Ctrl+click in the text to show it in the preview</li>
@@ -88,6 +88,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.61.4" date="2026-11-20">
+      <description>
+        <p>0.61.4 "Quick Silver" — bibliographies that keep up. An edit in Kartoteka or a Zotero auto-export now reaches the preview and PDF within about a second, without a keystroke to trigger it: Zerkalo compiles a vault from its entries rather than a library.yml that could lag behind, and the project's copy of a bibliography follows its own original whichever document uses it.</p>
+      </description>
+    </release>
     <release version="0.61.3" date="2026-11-19">
       <description>
         <p>0.61.3 "Curled Margin" — curly quotes where they were still straight or backwards: in reference lists and citation footnotes, on the title page, in leading apostrophes like 'tis and the '90s, and in apostrophes inside single quotation marks.</p>

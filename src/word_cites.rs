@@ -17,7 +17,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::SystemTime;
 
 use hayagriva::archive::ArchivedStyle;
 use hayagriva::citationberg::{CitationFormat, IndependentStyle, Style, StyleCategory};
@@ -135,7 +134,7 @@ impl CitationWords {
 }
 
 fn read_library(path: &Path) -> Option<hayagriva::Library> {
-    let text = std::fs::read_to_string(crate::bibliography::bib_target_path(path)).ok()?;
+    let text = crate::bib_live::read(path).ok()?;
     let is_yaml = path
         .extension()
         .and_then(|e| e.to_str())
@@ -184,7 +183,7 @@ fn render(
         .collect()
 }
 
-type CacheKey = (PathBuf, Option<SystemTime>, String, Vec<String>);
+type CacheKey = (PathBuf, Option<crate::bib_live::Stamp>, String, Vec<String>);
 
 /// The last result: counting runs on every pause in typing, and the
 /// bibliography and style almost never change between two of them.
@@ -239,10 +238,8 @@ pub fn for_document(
             }
         }
     }
-    let mtime = std::fs::metadata(crate::bibliography::bib_target_path(&bib))
-        .and_then(|m| m.modified())
-        .ok();
-    let cache_key: CacheKey = (bib.clone(), mtime, name, keys.clone());
+    let stamp = crate::bib_live::stamp(&bib);
+    let cache_key: CacheKey = (bib.clone(), stamp, name, keys.clone());
     if let Some((k, v)) = cache().lock().ok()?.as_ref() {
         if *k == cache_key {
             return Some(v.clone());

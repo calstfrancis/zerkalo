@@ -88,50 +88,53 @@ pub fn install_package(spec_str: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// `sanitize_bib`'s output for a `.bib` path, keyed by that path and the
-/// file's own mtime at the time it was sanitized — a cache HIT means "this
-/// exact file content was already checked," so a stable bibliography file is
-/// only ever read and parsed once, not on every single compile.
+/// What to serve in place of a bibliography file, cached under
+/// `bib_live::stamp` so an unchanged bibliography is read and parsed once,
+/// not on every compile.
 ///
-/// Without this, a large bibliography (Zotero exports run to hundreds of KB)
-/// was being fully re-read, re-parsed through `biblatex`, and — every time —
-/// re-serialized into a fresh owned `String`, on *every* compile, since a
-/// compile fires on every debounced edit regardless of whether the
-/// bibliography itself changed. Sustained typing while a large `.bib` was
-/// configured could pile up compiles and allocations faster than they were
-/// freed; a real crash report (2026-08-18, "keeps crashing after I edit the
-/// bibliography source") matched an OOM-kill signature exactly — the log cut
-/// off mid-routine-activity with no panic message at all, which a Rust
-/// panic (even an uncaught one) would have printed first.
-type BibSanitizeCacheValue = Option<String>;
-static BIB_SANITIZE_CACHE: OnceLock<
-    Mutex<HashMap<PathBuf, (std::time::SystemTime, BibSanitizeCacheValue)>>,
-> = OnceLock::new();
+/// Without the cache, a large bibliography (Zotero exports run to hundreds
+/// of KB) was re-read, re-parsed and re-serialized on every compile, which
+/// fires on every debounced edit. A real crash report (2026-08-18, "keeps
+/// crashing after I edit the bibliography source") matched an OOM-kill.
+///
+/// Two things can replace the file on disk: the bibliography as it is now
+/// (`bib_live` — a Kartoteka vault's entries rather than its possibly stale
+/// `library.yml`, or the original of a Zerkalo copy), and, for `.bib`, a
+/// lenient fix of malformed dates (see `bib_sanitize`). `None` means the file
+/// on disk is right as it is.
+type ServedBib = Option<String>;
+static SERVED_BIB_CACHE: OnceLock<Mutex<HashMap<PathBuf, (crate::bib_live::Stamp, ServedBib)>>> =
+    OnceLock::new();
 
-fn bib_sanitize_cache(
-) -> &'static Mutex<HashMap<PathBuf, (std::time::SystemTime, BibSanitizeCacheValue)>> {
-    BIB_SANITIZE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn bib_kind(path: &Path) -> Option<bool> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    match ext.as_str() {
+        "bib" => Some(true),
+        "yml" | "yaml" => Some(false),
+        _ => None,
+    }
 }
 
-/// Cached wrapper around `bib_sanitize::sanitize_bib` — reads and sanitizes
-/// `path` only when it's not already cached under its current mtime.
-fn sanitize_bib_cached(path: &Path) -> BibSanitizeCacheValue {
-    let Ok(mtime) = std::fs::metadata(path).and_then(|m| m.modified()) else {
-        return None;
-    };
-    {
-        let cache = poisoned_lock(bib_sanitize_cache());
-        if let Some((cached_mtime, value)) = cache.get(path) {
-            if *cached_mtime == mtime {
-                return value.clone();
-            }
+fn served_bib(path: &Path) -> ServedBib {
+    let is_bib = bib_kind(path)?;
+    let stamp = crate::bib_live::stamp(path)?;
+    let cache = SERVED_BIB_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some((cached, value)) = poisoned_lock(cache).get(path) {
+        if *cached == stamp {
+            return value.clone();
         }
     }
-    let computed = std::fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| crate::bib_sanitize::sanitize_bib(&raw));
-    poisoned_lock(bib_sanitize_cache()).insert(path.to_path_buf(), (mtime, computed.clone()));
-    computed
+    let live = crate::bib_live::derived_text(path);
+    let value = if is_bib {
+        live.clone()
+            .or_else(|| std::fs::read_to_string(path).ok())
+            .and_then(|raw| crate::bib_sanitize::sanitize_bib(&raw))
+            .or(live)
+    } else {
+        live
+    };
+    poisoned_lock(cache).insert(path.to_path_buf(), (stamp, value.clone()));
+    value
 }
 
 /// Typst memoizes across compiles in a process-global `comemo` cache. Nothing
@@ -587,29 +590,6 @@ impl ZerkaloWorld {
                 .as_ref()
                 .is_some_and(|h| is_outside_project(&h.path));
 
-        // A single malformed date field — a common Zotero/BetterBibTeX export
-        // quirk (e.g. `year = {Winter/Spring 2001}`) — fails Typst's stricter
-        // BibLaTeX parser for the *whole file*, taking every citation in the
-        // document down with it, not just that one entry. Zerkalo's own
-        // citation panel reads the same file fine (a more lenient parser),
-        // so when the document references a plain `.bib` file, sanitize a
-        // copy the same lenient way and serve that instead — transparently,
-        // via the same `overrides` mechanism already used for unsaved editor
-        // buffers — rather than just reporting the failure.
-        if let Some(p) = doc_bib_path_raw
-            .as_deref()
-            .filter(|p| p.to_ascii_lowercase().ends_with(".bib"))
-        {
-            let resolved = if Path::new(p).is_absolute() {
-                PathBuf::from(p)
-            } else {
-                project_root.join(p)
-            };
-            if let Some(fixed) = sanitize_bib_cached(&resolved) {
-                overrides.insert(resolved, fixed);
-            }
-        }
-
         let force_split = content
             .as_deref()
             .is_some_and(|c| custom_csl_is_note_style(c, &project_root));
@@ -627,28 +607,13 @@ impl ZerkaloWorld {
 
         let hidden_bib_code = hidden_bib.map(|h| {
             // Typst reads a path starting with `/` from the World's root.
-            let (served, written) = if needs_widening {
+            let written = if needs_widening {
                 let abs = std::fs::canonicalize(&h.path).unwrap_or(h.path);
-                (abs.clone(), abs.to_string_lossy().into_owned())
+                abs.to_string_lossy().into_owned()
             } else {
-                let rel = h
-                    .path
-                    .strip_prefix(&project_root)
-                    .unwrap_or(&h.path)
-                    .to_path_buf();
-                (
-                    project_root.join(&rel),
-                    format!("/{}", rel.to_string_lossy().replace('\\', "/")),
-                )
+                let rel = h.path.strip_prefix(&project_root).unwrap_or(&h.path);
+                format!("/{}", rel.to_string_lossy().replace('\\', "/"))
             };
-            if served
-                .extension()
-                .is_some_and(|x| x.eq_ignore_ascii_case("bib"))
-            {
-                if let Some(fixed) = sanitize_bib_cached(&served) {
-                    overrides.insert(served, fixed);
-                }
-            }
             hidden_bibliography_code(&written, h.style.as_deref())
         });
 
@@ -762,6 +727,9 @@ impl typst::World for ZerkaloWorld {
         let result = self.resolve(id).and_then(|path| {
             if let Some(text) = self.overrides.get(&path) {
                 return Ok(Bytes::new(text.clone().into_bytes()));
+            }
+            if let Some(text) = served_bib(&path) {
+                return Ok(Bytes::new(text.into_bytes()));
             }
             std::fs::read(&path)
                 .map(Bytes::new)
@@ -1310,8 +1278,75 @@ mod tests {
         path
     }
 
+    fn compiled_text_of(path: &Path) -> String {
+        let (_, _, sync) =
+            compile_to_rgba_pages(path, 0.1, &Default::default(), &Default::default(), None)
+                .unwrap();
+        let layer = sync.text_layer();
+        let (a, b) = layer.everything().unwrap();
+        layer.text_between(a, b)
+    }
+
     #[test]
-    fn sanitize_bib_cached_returns_the_same_result_for_an_unchanged_file() {
+    fn a_date_added_in_kartoteka_reaches_the_document_before_library_yml_is_rewritten() {
+        let vault = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(vault.path().join("entries")).unwrap();
+        let undated = "smith2020:\n  type: book\n  title: A Book\n  author: Smith, Jane\n";
+        std::fs::write(vault.path().join("library.yml"), undated).unwrap();
+        std::fs::write(
+            vault.path().join("entries/smith2020.yml"),
+            format!("{undated}  date: 1987\n"),
+        )
+        .unwrap();
+
+        let proj = tempfile::tempdir().unwrap();
+        let doc = proj.path().join("main.typ");
+        let lib = vault.path().join("library.yml");
+        let copy = crate::bib_mirror::mirror_path_for(proj.path(), &lib);
+        crate::bib_mirror::sync(&lib, &copy).unwrap();
+        for named in [lib.to_string_lossy().into_owned(), "references.yaml".into()] {
+            std::fs::write(
+                &doc,
+                format!("@smith2020\n#bibliography(\"{named}\", style: \"apa\")\n"),
+            )
+            .unwrap();
+            let text = compiled_text_of(&doc);
+            assert!(text.contains("1987"), "{named}: {text}");
+        }
+    }
+
+    #[test]
+    fn a_changed_zotero_export_reaches_the_document_through_its_copy() {
+        let zotero = tempfile::tempdir().unwrap();
+        let src = zotero.path().join("My Library.bib");
+        std::fs::write(
+            &src,
+            "@book{smith2020, author={Smith, Jane}, title={A Book}}\n",
+        )
+        .unwrap();
+        let proj = tempfile::tempdir().unwrap();
+        let copy = crate::bib_mirror::mirror_path_for(proj.path(), &src);
+        crate::bib_mirror::sync(&src, &copy).unwrap();
+        let doc = proj.path().join("main.typ");
+        std::fs::write(
+            &doc,
+            "@smith2020\n#bibliography(\"references.bib\", style: \"apa\")\n",
+        )
+        .unwrap();
+        assert!(compiled_text_of(&doc).contains("n.d."));
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(
+            &src,
+            "@book{smith2020, author={Smith, Jane}, title={A Book}, date={1987}}\n",
+        )
+        .unwrap();
+        let text = compiled_text_of(&doc);
+        assert!(text.contains("1987"), "{text}");
+    }
+
+    #[test]
+    fn served_bib_returns_the_same_result_for_an_unchanged_file() {
         let path = std::env::temp_dir().join(format!(
             "zerkalo_bib_cache_test_a_{}.bib",
             std::process::id()
@@ -1321,15 +1356,15 @@ mod tests {
             "@article{key,\n  title = {T},\n  year = {Winter 2001},\n}\n",
         )
         .unwrap();
-        let first = sanitize_bib_cached(&path);
-        let second = sanitize_bib_cached(&path);
+        let first = served_bib(&path);
+        let second = served_bib(&path);
         assert_eq!(first, second);
         assert!(first.unwrap().contains("year = {2001}"));
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
-    fn sanitize_bib_cached_picks_up_a_changed_file_rather_than_serving_a_stale_fix() {
+    fn served_bib_picks_up_a_changed_file_rather_than_serving_a_stale_fix() {
         let path = std::env::temp_dir().join(format!(
             "zerkalo_bib_cache_test_b_{}.bib",
             std::process::id()
@@ -1339,7 +1374,7 @@ mod tests {
             "@article{key,\n  title = {T},\n  year = {Winter 2001},\n}\n",
         )
         .unwrap();
-        let first = sanitize_bib_cached(&path);
+        let first = served_bib(&path);
         assert!(first.is_some(), "the malformed date should have been fixed");
 
         // Ensure a distinct mtime even on filesystems with coarse resolution.
@@ -1349,7 +1384,7 @@ mod tests {
             "@article{key,\n  title = {T},\n  year = {2001},\n}\n",
         )
         .unwrap();
-        let second = sanitize_bib_cached(&path);
+        let second = served_bib(&path);
         assert!(
             second.is_none(),
             "the now-clean file needs no fix, and must not reuse the stale cached one: {second:?}"
@@ -1359,12 +1394,12 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_bib_cached_returns_none_for_a_missing_file() {
+    fn served_bib_returns_none_for_a_missing_file() {
         let path = std::env::temp_dir().join(format!(
             "zerkalo_bib_cache_test_missing_{}.bib",
             std::process::id()
         ));
-        assert!(sanitize_bib_cached(&path).is_none());
+        assert!(served_bib(&path).is_none());
     }
 
     /// Reproduces the reported bug directly: a bibliography source outside

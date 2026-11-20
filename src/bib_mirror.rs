@@ -38,10 +38,19 @@ fn first_line(path: &Path) -> Option<String> {
     std::io::BufReader::new(file).lines().next()?.ok()
 }
 
-fn marker_of(path: &Path, tag: &str) -> Option<String> {
-    let line = first_line(path)?;
+fn marker_in(line: &str, tag: &str) -> Option<String> {
     let rest = line.trim_start_matches(['%', '#']).trim();
     rest.strip_prefix(tag).map(|r| r.trim().to_string())
+}
+
+fn marker_of(path: &Path, tag: &str) -> Option<String> {
+    marker_in(&first_line(path)?, tag)
+}
+
+#[cfg(test)]
+pub fn is_ours_text(text: &str) -> bool {
+    let line = text.lines().next().unwrap_or("");
+    marker_in(line, MIRROR).is_some() || marker_in(line, FROZEN).is_some()
 }
 
 /// Whether Zerkalo wrote `path` itself (a mirror or a frozen copy), so it is
@@ -119,7 +128,13 @@ fn with_marker(target: &Path, tag: &str, what: &str, body: &str) -> String {
     )
 }
 
-/// Makes `target` a current copy of `source`. Writes only if the contents
+/// The text of `target` as a copy of `source` holding `body`.
+pub fn marked(target: &Path, source: &Path, body: &str) -> String {
+    with_marker(target, MIRROR, &source.to_string_lossy(), body)
+}
+
+/// Makes `target` a current copy of `source` (for a vault's `library.yml`,
+/// of the vault's entries). Writes only if the contents
 /// differ, and never over a file that isn't Zerkalo's own. Returns whether it
 /// wrote.
 pub fn sync(source: &Path, target: &Path) -> std::io::Result<bool> {
@@ -132,8 +147,8 @@ pub fn sync(source: &Path, target: &Path) -> std::io::Result<bool> {
             ),
         ));
     }
-    let body = std::fs::read_to_string(source)?;
-    let text = with_marker(target, MIRROR, &source.to_string_lossy(), &body);
+    let body = crate::bib_live::read_original(source)?;
+    let text = marked(target, source, &body);
     if std::fs::read_to_string(target).ok().as_deref() == Some(text.as_str()) {
         return Ok(false);
     }

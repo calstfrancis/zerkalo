@@ -99,8 +99,9 @@ pub fn is_usable_source(path: &Path) -> bool {
 /// actually resolve any citation at compile time even once it was readable
 /// (see `compiler::ZerkaloWorld`'s `extra_root`), since Typst had nothing to
 /// parse there. `library.yml` is the vault's own committed, Typst-consumable
-/// export (`fond_bib::Library::regenerate_library_yml`), kept in sync with
-/// `entries/` automatically by Kartoteka.
+/// export (`fond_bib::Library::regenerate_library_yml`). Kartoteka before
+/// 0.26.1 didn't rewrite it after a field edit, so compiles read the vault
+/// through `bib_live`, which builds the same document from `entries/`.
 pub fn bib_target_path(bib_path: &Path) -> std::path::PathBuf {
     if is_vault_dir(bib_path) {
         bib_path.join("library.yml")

@@ -15,7 +15,7 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use crate::bib_mirror;
 use crate::bib_source::{self, Origin, Resolved};
@@ -26,6 +26,8 @@ use super::super::citation_panel::CitationPanel;
 use super::super::editor_pane::EditorPane;
 use super::super::preview_pane::PreviewPane;
 use super::super::ref_manager::RefManager;
+
+const POLL: Duration = Duration::from_secs(1);
 
 enum Watch {
     Poll(Option<glib::SourceId>),
@@ -59,6 +61,9 @@ struct Inner {
     watch: RefCell<Option<Watch>>,
     /// Keeps the in-project copy fresh while the original changes.
     mirror_timer: RefCell<Option<glib::SourceId>>,
+    /// Called when the bibliography in use changes on disk, so the preview
+    /// can recompile without waiting for the next keystroke.
+    on_changed: RefCell<Option<Rc<dyn Fn()>>>,
 }
 
 #[derive(Clone)]
@@ -83,7 +88,20 @@ impl BibManager {
             current: RefCell::new(None),
             watch: RefCell::new(None),
             mirror_timer: RefCell::new(None),
+            on_changed: RefCell::new(None),
         }))
+    }
+
+    pub(super) fn connect_changed(&self, f: impl Fn() + 'static) {
+        *self.0.on_changed.borrow_mut() = Some(Rc::new(f));
+    }
+
+    fn changed_on_disk(&self, path: &Path) {
+        self.show(path);
+        let callback = self.0.on_changed.borrow().clone();
+        if let Some(f) = callback {
+            f();
+        }
     }
 
     pub(super) fn current(&self) -> Option<Resolved> {
@@ -191,10 +209,9 @@ impl BibManager {
             return;
         };
         let _ = bib_mirror::sync(&source, &copy);
-        let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        let last = Rc::new(RefCell::new(mtime(&source)));
-        let id = glib::timeout_add_local(Duration::from_secs(3), move || {
-            let now = mtime(&source);
+        let last = Rc::new(RefCell::new(crate::bib_live::stamp(&source)));
+        let id = glib::timeout_add_local(POLL, move || {
+            let now = crate::bib_live::stamp(&source);
             if *last.borrow() != now {
                 *last.borrow_mut() = now;
                 let _ = bib_mirror::sync(&source, &copy);
@@ -369,7 +386,7 @@ impl BibManager {
                     }
                     if changed {
                         if let Some(inner) = weak.upgrade() {
-                            BibManager(inner).show(&target);
+                            BibManager(inner).changed_on_disk(&target);
                         }
                     }
                     glib::ControlFlow::Continue
@@ -380,15 +397,22 @@ impl BibManager {
                 };
             }
         }
-        let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        let last: Rc<RefCell<Option<SystemTime>>> = Rc::new(RefCell::new(mtime(&target)));
-        let id = glib::timeout_add_local(Duration::from_secs(3), move || {
-            let now = mtime(&target);
-            let changed = *last.borrow() != now;
-            if changed {
-                *last.borrow_mut() = now;
+        // A copy Zerkalo made follows its original, wherever the document's
+        // bibliography line came from — not only the one Settings names.
+        let last = Rc::new(RefCell::new(crate::bib_live::stamp(&target)));
+        let id = glib::timeout_add_local(POLL, move || {
+            let now = crate::bib_live::stamp(&target);
+            if *last.borrow() != now {
+                if let Some(origin) = bib_mirror::origin_of(&target).filter(|o| o.exists()) {
+                    if let Err(e) = bib_mirror::sync(&origin, &target) {
+                        tracing::warn!("Couldn't refresh {}: {e}", target.display());
+                    }
+                }
+                // After the refresh, so the copy's own new time isn't seen
+                // as a second change.
+                *last.borrow_mut() = crate::bib_live::stamp(&target);
                 if let Some(inner) = weak.upgrade() {
-                    BibManager(inner).show(&target);
+                    BibManager(inner).changed_on_disk(&target);
                 }
             }
             glib::ControlFlow::Continue

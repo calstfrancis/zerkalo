@@ -9,6 +9,7 @@ mod apostrophes;
 mod assets;
 mod authors;
 mod auto_save;
+mod bib_live;
 mod bib_mirror;
 mod bib_sanitize;
 mod bib_source;

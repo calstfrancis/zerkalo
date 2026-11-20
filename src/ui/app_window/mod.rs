@@ -623,6 +623,14 @@ impl AppWindow {
             current_config.clone(),
             project_root.clone(),
         );
+        {
+            let (preview, auto) = (preview_pane.clone(), auto_compile.clone());
+            bib_manager.connect_changed(move || {
+                if *auto.borrow() {
+                    preview.trigger_compile();
+                }
+            });
+        }
         let auto_detected_bib = wire_citations(&CitationCtx {
             window: window.clone(),
             editor_pane: editor_pane.clone(),

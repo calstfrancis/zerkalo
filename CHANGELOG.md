@@ -3,6 +3,15 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.61.4] "Quick Silver" — 2026-11-20 — Bibliographies that keep up
+
+### Fixed
+
+- **A change in Kartoteka now reaches the preview and PDF.** Adding a date or fixing a title in Kartoteka showed up in the Citations panel but not in the document, even after compiling again. The panel reads the vault's entries live, but the compile read the vault's `library.yml`, which Kartoteka didn't rewrite after a field edit. Zerkalo now compiles from the entries themselves, the same as the panel, so the two always agree. (Kartoteka 0.26.1 also now keeps `library.yml` current.)
+- **The project's copy of a bibliography follows its original, whichever document uses it.** A copy kept in the project (`references.bib`, `references.yaml`) was refreshed only for the bibliography named in Settings, so a document using a Zotero copy while Settings named the Kartoteka vault, or the other way round, never got updates. Each copy now follows its own original, and while the original is on this computer the preview reads it directly.
+- **The preview updates by itself when a bibliography changes.** A Zotero auto-export or a Kartoteka edit used to wait for your next keystroke before the preview recompiled. It now recompiles within about a second (when Auto compile is on).
+- The same live reading applies to Word export's citation text, frozen copies for submission and exported cited-only reference files.
+
 ## [0.61.3] "Curled Margin" — 2026-11-19 — Curly quotes everywhere
 
 ### Fixed
