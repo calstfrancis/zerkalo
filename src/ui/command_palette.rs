@@ -321,8 +321,13 @@ pub fn default_commands() -> Vec<PaletteItem> {
         },
         PaletteItem {
             id: "toggle_find".into(),
+            label: "Find".into(),
+            subtitle: crate::keybindings::shown("Find in this document ({find}; again for the next match)").into(),
+        },
+        PaletteItem {
+            id: "find_replace".into(),
             label: "Find & replace".into(),
-            subtitle: crate::keybindings::shown("Show or hide the find and replace bar ({find})").into(),
+            subtitle: crate::keybindings::shown("Find and replace in this document ({replace})").into(),
         },
         PaletteItem {
             id: "find_in_files".into(),

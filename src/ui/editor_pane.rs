@@ -205,6 +205,7 @@ pub struct EditorPane {
     lsp_status_label: Label,
     safe_label: Label,
     safe_btn: Button,
+    search_btn: Button,
     diag_label: Label,
     diag_btn: Button,
     on_diag_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
@@ -226,7 +227,9 @@ pub struct EditorPane {
     jumping: Rc<Cell<bool>>,
     zen_on: Rc<Cell<bool>>,
     /// Highlights every match of the current Find, not just the one the cursor is on.
-    search_context: Rc<RefCell<Option<sourceview5::SearchContext>>>,
+    find: Rc<find::FindState>,
+    /// Where the matches are, drawn beside the editor's scrollbar.
+    find_marks: gtk4::DrawingArea,
     on_show_in_preview: Rc<RefCell<Option<Box<dyn Fn(PathBuf, usize)>>>>,
     word_count_goal: Rc<RefCell<u32>>,
     /// The Settings → Editor goal, applied to any document that doesn't carry
@@ -459,6 +462,13 @@ impl EditorPane {
         let editor_overlay = gtk4::Overlay::new();
         editor_overlay.set_child(Some(&editor_row));
         editor_overlay.add_overlay(&typewriter_crosshair);
+        let find_marks = gtk4::DrawingArea::new();
+        find_marks.set_content_width(6);
+        find_marks.set_halign(gtk4::Align::End);
+        find_marks.set_valign(gtk4::Align::Fill);
+        find_marks.set_can_target(false);
+        find_marks.set_can_focus(false);
+        editor_overlay.add_overlay(&find_marks);
 
         let FormatBar {
             bold_btn,
@@ -673,7 +683,8 @@ impl EditorPane {
             typewriter_scroll,
             jumping: Rc::new(Cell::new(false)),
             zen_on: Rc::new(Cell::new(false)),
-            search_context: Rc::new(RefCell::new(None)),
+            find: Rc::new(find::FindState::default()),
+            find_marks,
             on_show_in_preview: Rc::new(RefCell::new(None)),
             word_count_goal,
             default_word_count_goal,
@@ -704,6 +715,7 @@ impl EditorPane {
             autosave_label,
             safe_label,
             safe_btn,
+            search_btn: search_btn.clone(),
             autosave_toggle_btn: autosave_toggle_btn.clone(),
             autosave_on: Rc::new(Cell::new(false)),
             on_autosave_toggle: Rc::new(RefCell::new(None)),
@@ -775,16 +787,15 @@ impl EditorPane {
             });
         }
         {
-            let fb = ep.find_bar.clone();
-            search_btn.connect_clicked(move |_| {
-                fb.toggle();
-            });
+            let ep2 = ep.clone();
+            search_btn.connect_clicked(move |_| ep2.find_toggle());
         }
         {
             let sl = search_label.clone();
             let ep_focus = ep.clone();
             ep.find_bar.set_on_reveal_changed(move |revealed| {
                 set_toggle_label(&sl, "search", revealed);
+                ep_focus.remember_find_anchor(revealed);
                 if !revealed {
                     ep_focus.clear_search_highlight();
                     ep_focus.grab_focus();
@@ -1058,7 +1069,20 @@ impl EditorPane {
         {
             let ep2 = ep.clone();
             ep.find_bar
-                .set_on_search(move |text, forward| ep2.do_find(text, forward));
+                .set_on_search(move |text, step| ep2.do_find(text, step));
+            let ep2 = ep.clone();
+            ep.find_bar
+                .set_on_all_files(move |text| ep2.find_in_files(text));
+            let ep2 = ep.clone();
+            ep.find_marks
+                .set_draw_func(move |area, cr, _, _| ep2.draw_find_marks(area, cr));
+            // Another tab: highlight and count its matches, leaving its
+            // cursor where it was.
+            let ep2 = ep.clone();
+            ep.notebook.view.connect_selected_page_notify(move |_| {
+                let ep3 = ep2.clone();
+                glib::idle_add_local_once(move || ep3.find_on_tab_switch());
+            });
         }
         {
             let ep2 = ep.clone();
@@ -1186,6 +1210,12 @@ impl EditorPane {
     /// Places `w` right after the steady "Saved · backed up …" line.
     pub fn status_bar_insert_after_safety(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
         self.status_bar.insert_child_after(w, Some(&self.safe_btn));
+    }
+
+    /// Puts the search toggle right after `w` ("writing history").
+    pub fn status_bar_place_search_after(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
+        self.status_bar
+            .reorder_child_after(&self.search_btn, Some(w));
     }
 
     pub fn status_bar_append_left(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {

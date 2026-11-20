@@ -5843,7 +5843,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.61.4"
+version = "0.62.0"
 dependencies = [
  "ashpd",
  "base64",
@@ -5860,6 +5860,7 @@ dependencies = [
  "imagesize",
  "keyring",
  "libadwaita",
+ "libc",
  "lopdf",
  "notify",
  "pulldown-cmark",
@@ -5889,6 +5890,7 @@ dependencies = [
  "typst-pdf",
  "typst-render",
  "unic-langid",
+ "unicode-normalization",
  "url",
  "zip",
 ]

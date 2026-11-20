@@ -39,7 +39,7 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Body("Once a template's settings are how you want them, press the save button beside \"Your templates\" in that dialog to keep them under a name. Saved templates sit under the built-in presets and start a document exactly the way the last one started — the title, date, abstract and keywords are left out, since those belong to a single document rather than to a template."),
         Block::Gap,
         Block::H2("Layout"),
-        Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tab bar (drag to reorder, right-click for more), syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nThings to look at       What needs attention, in plain language"),
+        Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tab bar (drag to reorder, right-click for more), syntax-highlighted Typst editor\nFind bar       Search/replace at the bottom of the editor; searches as you type from 3 letters,\n               ignores accents, marks matches beside the scrollbar; All files searches the project\nPreview        Live rendered output — use +/− to zoom\nThings to look at       What needs attention, in plain language"),
         Block::Gap,
         Block::H2("Backing up & working on more than one computer"),
         Block::Body(crate::keybindings::shown("Autosave (the \"autosave\" word in the status bar, bold when on) saves your document 3 seconds after you stop typing, and whenever you switch to another window or tab, update the preview, export or quit. {save} still saves too, and is what adds an entry to Version history.")),
@@ -263,13 +263,14 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
     let shortcuts_help = d(&kb.shortcuts_help);
     let help_overlay = d(&kb.help_overlay);
     let quit = d(&kb.quit);
+    let replace = d(&kb.replace);
 
     vec![
         Block::H1("Keyboard shortcuts"),
         Block::Gap,
         Block::H2("Editing"),
         Block::CodeOwned(format!(
-            "{save:<20}Save current file\n{find:<20}Find & replace\n{next_tab:<20}Next tab\n{prev_tab:<20}Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nF8 / Shift+F8       Go to the next / previous problem\nF7                  Check spelling now (every word, including the one you're typing)\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nAlt+Up / Alt+Down   Move the line (or selected lines) up / down\nAlt+Shift+Right     Select more: word, brackets, line, paragraph, section, document\nAlt+Shift+Left      Select less again\nCtrl+Enter          Insert page break\nEnter in a list     Starts the next item (Enter on an empty item ends the list)\nTab / Shift+Tab     Nest / un-nest a list item\nEnter in a #poem    Adds the line's trailing \\ (Enter on the empty line takes it off)\n{palette}, \"poem\"      Insert a poem or a verse quotation\nCtrl+V on a selection  A copied web address becomes a link on the selected text\nMiddle-click tab    Close tab\nRight-click tab     Duplicate, close others, delete"
+            "{save:<20}Save current file\n{find:<20}Find; press again for the next match\n{replace:<20}Find & replace\nShift+Enter         Previous match (in the find box)\nCtrl+Shift+F        Find in all the project's files\n{next_tab:<20}Next tab\n{prev_tab:<20}Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nF8 / Shift+F8       Go to the next / previous problem\nF7                  Check spelling now (every word, including the one you're typing)\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nAlt+Up / Alt+Down   Move the line (or selected lines) up / down\nAlt+Shift+Right     Select more: word, brackets, line, paragraph, section, document\nAlt+Shift+Left      Select less again\nCtrl+Enter          Insert page break\nEnter in a list     Starts the next item (Enter on an empty item ends the list)\nTab / Shift+Tab     Nest / un-nest a list item\nEnter in a #poem    Adds the line's trailing \\ (Enter on the empty line takes it off)\n{palette}, \"poem\"      Insert a poem or a verse quotation\nCtrl+V on a selection  A copied web address becomes a link on the selected text\nMiddle-click tab    Close tab\nRight-click tab     Duplicate, close others, delete"
         )),
         Block::Gap,
         Block::H2("The preview"),

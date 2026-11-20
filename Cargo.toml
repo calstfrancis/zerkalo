@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.61.4"
+version = "0.62.0"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -24,6 +24,8 @@ git2 = "0.21"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 keyring = { version = "3", features = ["sync-secret-service"] }
 regex = "1.10"
+unicode-normalization = "0.1.25"
+libc = "0.2"
 chrono = "0.4"
 shellexpand = "3.1"
 notify = "6"

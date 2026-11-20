@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use crate::text_search::{Options, Query};
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::*;
 use gtk4::{
@@ -140,11 +141,18 @@ impl SearchPanel {
             p.do_search(&text);
         });
 
-        // Live search on text change
+        // Live search on text change, from the same three letters as the
+        // editor's find bar; Enter searches for anything shorter.
         let p2 = panel.clone();
         entry.connect_changed(move |e| {
             let p3 = p2.clone();
             let text = e.text().to_string();
+            let n = text.chars().count();
+            if n > 0 && n < crate::ui::find_bar::MIN_TYPED {
+                p3.clear_results();
+                p3.count_lbl.set_text("Enter to search");
+                return;
+            }
             glib::idle_add_local_once(move || {
                 p3.do_search(&text);
             });
@@ -172,55 +180,35 @@ impl SearchPanel {
                 .as_ref()
                 .map(|f| f())
                 .unwrap_or_default();
+            let Ok(q) = Query::new(&query, Options::default()) else {
+                return;
+            };
             let open_paths: std::collections::HashSet<PathBuf> =
                 open.iter().map(|(p, _)| p.clone()).collect();
             let mut open_changed = 0usize;
-            if let Ok(re) = regex::RegexBuilder::new(&regex::escape(&query))
-                .case_insensitive(true)
-                .build()
-            {
-                for (path, text) in &open {
-                    let new_text = re.replace_all(text, regex::NoExpand(replacement.as_str()));
-                    if new_text != *text {
-                        open_changed += 1;
-                        if let Some(f) = p_rep.on_replace_open.borrow().as_ref() {
-                            f(path.clone(), new_text.into_owned());
-                        }
+            for (path, text) in &open {
+                let (new_text, n) = replace_all(&q, text, &replacement);
+                if n > 0 {
+                    open_changed += 1;
+                    if let Some(f) = p_rep.on_replace_open.borrow().as_ref() {
+                        f(path.clone(), new_text);
                     }
                 }
             }
 
             let (tx, rx) = std::sync::mpsc::sync_channel(1);
-            let query_thread = query.clone();
             std::thread::spawn(move || {
                 let gitignore = load_gitignore(&work_dir);
-                let matches = search_typ_files(
-                    &work_dir,
-                    &query_thread.to_lowercase(),
-                    usize::MAX,
-                    &gitignore,
-                );
-                let mut files_changed: std::collections::HashSet<PathBuf> = Default::default();
-                for m in &matches {
-                    files_changed.insert(m.file.clone());
-                }
-                let Ok(re) = regex::RegexBuilder::new(&regex::escape(&query_thread))
-                    .case_insensitive(true)
-                    .build()
-                else {
-                    let _ = tx.send(Vec::new());
-                    return;
-                };
                 let mut written: Vec<PathBuf> = Vec::new();
-                for file in files_changed.iter().filter(|f| !open_paths.contains(*f)) {
+                for file in typ_files(&work_dir, &gitignore)
+                    .iter()
+                    .filter(|f| !open_paths.contains(*f))
+                {
                     let Ok(content) = std::fs::read_to_string(file) else {
                         continue;
                     };
-                    let new_content =
-                        re.replace_all(&content, regex::NoExpand(replacement.as_str()));
-                    if new_content != content
-                        && crate::error::atomic_write(file, new_content.as_bytes()).is_ok()
-                    {
+                    let (new_content, n) = replace_all(&q, &content, &replacement);
+                    if n > 0 && crate::error::atomic_write(file, new_content.as_bytes()).is_ok() {
                         written.push(file.clone());
                     }
                 }
@@ -322,11 +310,27 @@ impl SearchPanel {
         }
     }
 
-    fn do_search(&self, query: &str) {
+    /// Opens the panel searching for `text` (the editor's find bar hands its
+    /// search over this way).
+    pub fn show_with(&self, text: &str) {
+        self.widget.set_visible(true);
+        if self.entry.text() == text {
+            self.do_search(text);
+        } else {
+            self.entry.set_text(text);
+        }
+        self.entry.grab_focus();
+    }
+
+    fn clear_results(&self) {
+        *self.search_gen.borrow_mut() += 1;
         while let Some(child) = self.results.first_child() {
             self.results.remove(&child);
         }
-        *self.search_gen.borrow_mut() += 1;
+    }
+
+    fn do_search(&self, query: &str) {
+        self.clear_results();
         let my_gen = *self.search_gen.borrow();
         if query.is_empty() {
             self.count_lbl.set_text("");
@@ -336,25 +340,34 @@ impl SearchPanel {
         if let Some(f) = self.on_search.borrow().as_ref() {
             f(query.to_string());
         }
+        let Ok(q) = Query::new(query, Options::default()) else {
+            return;
+        };
         let work_dir = self.work_dir.borrow().clone();
-        let query_lower = query.to_lowercase();
+        // What's on screen, not what was last saved: unsaved typing is found
+        // and its line numbers are the ones the editor shows.
+        let open: Vec<(PathBuf, String)> = self
+            .open_documents
+            .borrow()
+            .as_ref()
+            .map(|f| f())
+            .unwrap_or_default();
 
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let gitignore = load_gitignore(&work_dir);
-            let matches = search_typ_files(&work_dir, &query_lower, 200, &gitignore);
-            let _ = tx.send(matches);
+            let files = typ_files(&work_dir, &gitignore);
+            let _ = tx.send(search_files(&files, &open, &q, RESULT_LIMIT));
         });
 
         let panel = self.clone();
-        let query = query.to_string();
         glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
             if *panel.search_gen.borrow() != my_gen {
                 return glib::ControlFlow::Break;
             }
             match rx.try_recv() {
                 Ok(matches) => {
-                    panel.render_results(&query, matches);
+                    panel.render_results(matches);
                     glib::ControlFlow::Break
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
@@ -363,7 +376,7 @@ impl SearchPanel {
         });
     }
 
-    fn render_results(&self, query: &str, matches: Vec<Match>) {
+    fn render_results(&self, matches: Vec<Match>) {
         if matches.is_empty() {
             self.count_lbl.set_text("No results");
             let row = ListBoxRow::new();
@@ -384,11 +397,14 @@ impl SearchPanel {
             }
             seen.len()
         };
-        let truncated = matches.len() >= 200;
+        let truncated = matches.len() >= RESULT_LIMIT;
+        let files = if file_count == 1 { "file" } else { "files" };
         let count_text = if truncated {
-            format!("200+ matches in {} files", file_count)
+            format!("Over {RESULT_LIMIT} lines in {file_count} {files}")
         } else {
-            format!("{} matches in {} files", matches.len(), file_count)
+            let n = matches.len();
+            let lines = if n == 1 { "line" } else { "lines" };
+            format!("{n} {lines} in {file_count} {files}")
         };
         self.count_lbl.set_text(&count_text);
 
@@ -410,7 +426,7 @@ impl SearchPanel {
             loc.set_xalign(0.0);
 
             let preview = Label::new(None);
-            preview.set_markup(&highlight_markup(&m.preview, query));
+            preview.set_markup(&line_markup(&m.preview, m.bold.0, m.bold.1));
             preview.set_hexpand(true);
             preview.set_xalign(0.0);
             preview.set_ellipsize(EllipsizeMode::End);
@@ -484,104 +500,121 @@ fn glob_match_name(pattern: &str, name: &str) -> bool {
 
 // ── Match highlighting ────────────────────────────────────────────────────────
 
-fn highlight_markup(line: &str, query: &str) -> String {
-    let lower_line = line.to_lowercase();
-    let lower_query = query.to_lowercase();
-    let Some(pos) = lower_line.find(&lower_query) else {
-        return glib::markup_escape_text(line).to_string();
-    };
-    let end = pos + lower_query.len();
-
-    // `pos`/`end` are byte offsets into `lower_line`, not `line` — case
-    // folding can change a character's byte length (Turkish İ, Kelvin sign
-    // K, German ß, …), so they aren't guaranteed to land on char boundaries
-    // in the original (or even be in range) when such characters appear
-    // before or within the match. Clamp into range, then snap outward to
-    // the nearest valid boundary, rather than assuming they already align —
-    // slicing at a non-boundary offset panics.
-    let mut pos = pos.min(line.len());
-    let mut end = end.min(line.len());
-    while pos > 0 && !line.is_char_boundary(pos) {
-        pos -= 1;
+/// `line` with bytes `start..end` in bold, snapped to character boundaries.
+fn line_markup(line: &str, start: usize, end: usize) -> String {
+    let mut start = start.min(line.len());
+    let mut end = end.clamp(start, line.len());
+    while start > 0 && !line.is_char_boundary(start) {
+        start -= 1;
     }
     while end < line.len() && !line.is_char_boundary(end) {
         end += 1;
     }
-    if end < pos {
-        end = pos;
-    }
-
-    let before = glib::markup_escape_text(&line[..pos]);
-    let matched = glib::markup_escape_text(&line[pos..end]);
+    let before = glib::markup_escape_text(&line[..start]);
+    let matched = glib::markup_escape_text(&line[start..end]);
     let after = glib::markup_escape_text(&line[end..]);
     format!("{before}<b>{matched}</b>{after}")
 }
 
 // ── File search ───────────────────────────────────────────────────────────────
 
+const RESULT_LIMIT: usize = 200;
+
 #[derive(Clone)]
 struct Match {
     file: PathBuf,
     line: u32,
     preview: String,
+    /// The match's bytes within `preview`.
+    bold: (usize, usize),
 }
 
-fn search_typ_files(
-    work_dir: &PathBuf,
-    query: &str,
-    limit: usize,
-    gitignore: &[String],
-) -> Vec<Match> {
+fn replace_all(q: &Query, text: &str, with: &str) -> (String, usize) {
+    let found = q.find(text);
+    (q.replace_found(text, &found, with), found.len())
+}
+
+/// The project's `.typ` files, by name, leaving out hidden folders, `target`
+/// and anything `.gitignore` names.
+fn typ_files(work_dir: &Path, gitignore: &[String]) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    visit_dir(work_dir, work_dir, query, &mut out, limit, gitignore);
+    visit_dir(work_dir, work_dir, &mut out, gitignore);
     out
 }
 
-fn visit_dir(
-    dir: &PathBuf,
-    work_dir: &Path,
-    query: &str,
-    out: &mut Vec<Match>,
-    limit: usize,
-    gitignore: &[String],
-) {
+fn visit_dir(dir: &Path, work_dir: &Path, out: &mut Vec<PathBuf>, gitignore: &[String]) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     let mut entries: Vec<_> = entries.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
-        if out.len() >= limit {
-            return;
-        }
         let path = entry.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if name.starts_with('.') || name == "target" {
-            continue;
-        }
-        if is_gitignored(&path, work_dir, gitignore) {
+        if name.starts_with('.') || name == "target" || is_gitignored(&path, work_dir, gitignore) {
             continue;
         }
         if path.is_dir() {
-            visit_dir(&path, work_dir, query, out, limit, gitignore);
+            visit_dir(&path, work_dir, out, gitignore);
         } else if path.extension().and_then(|e| e.to_str()) == Some("typ") {
-            let Ok(content) = std::fs::read_to_string(&path) else {
+            out.push(path);
+        }
+    }
+}
+
+/// Every line in `files` with a match, reading an open document's text from
+/// `open` rather than from disk.
+fn search_files(
+    files: &[PathBuf],
+    open: &[(PathBuf, String)],
+    q: &Query,
+    limit: usize,
+) -> Vec<Match> {
+    let mut out = Vec::new();
+    for file in files {
+        let owned;
+        let text = match open.iter().find(|(p, _)| p == file) {
+            Some((_, t)) => t.as_str(),
+            None => match std::fs::read_to_string(file) {
+                Ok(t) => {
+                    owned = t;
+                    owned.as_str()
+                }
+                Err(_) => continue,
+            },
+        };
+        let (mut line, mut counted_to) = (1u32, 0usize);
+        let mut last_line = 0u32;
+        for f in q.find(text) {
+            line += text[counted_to..f.byte_start].matches('\n').count() as u32;
+            counted_to = f.byte_start;
+            // One row per line, bolding its first match.
+            if line == last_line {
                 continue;
-            };
-            for (i, line) in content.lines().enumerate() {
-                if out.len() >= limit {
-                    return;
-                }
-                if line.to_lowercase().contains(query) {
-                    out.push(Match {
-                        file: path.clone(),
-                        line: (i + 1) as u32,
-                        preview: line.trim().to_string(),
-                    });
-                }
+            }
+            last_line = line;
+            let line_start = text[..f.byte_start].rfind('\n').map_or(0, |i| i + 1);
+            let line_end = text[f.byte_start..]
+                .find('\n')
+                .map_or(text.len(), |i| f.byte_start + i);
+            let raw = &text[line_start..line_end];
+            let trimmed = raw.trim_start();
+            let cut = raw.len() - trimmed.len();
+            let preview = trimmed.trim_end().to_string();
+            let bold_start = (f.byte_start - line_start).saturating_sub(cut);
+            let bold_end = (f.byte_end.min(line_end) - line_start).saturating_sub(cut);
+            out.push(Match {
+                file: file.clone(),
+                line,
+                bold: (bold_start, bold_end.min(preview.len())),
+                preview,
+            });
+            if out.len() >= limit {
+                return out;
             }
         }
     }
+    out
 }
 
 fn encode_row_name(file: &Path, line: u32) -> String {
@@ -600,34 +633,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn highlight_markup_wraps_the_match_in_bold() {
-        let out = highlight_markup("hello world", "world");
-        assert_eq!(out, "hello <b>world</b>");
+    fn line_markup_bolds_the_match_and_escapes_the_rest() {
+        assert_eq!(line_markup("hello world", 6, 11), "hello <b>world</b>");
+        assert!(line_markup("<tag> world", 6, 11).contains("&lt;tag&gt;"));
+        // An offset inside a character is snapped, never sliced.
+        assert!(line_markup("stanİ日", 0, 5).contains("<b>"));
     }
 
     #[test]
-    fn highlight_markup_is_case_insensitive() {
-        let out = highlight_markup("Hello World", "world");
-        assert_eq!(out, "Hello <b>World</b>");
-    }
-
-    #[test]
-    fn highlight_markup_does_not_panic_when_lowercasing_shifts_byte_offsets_mid_character() {
-        // "İ" (U+0130) lowercases to "i̇" (i + combining dot above), which is
-        // 1 byte longer — so a byte offset found in the lowercased copy can
-        // land in the middle of "İ"'s 2-byte UTF-8 sequence in the original
-        // string. This used to panic on `line[pos..end]`; now it must not.
-        let line = "stanİ日";
-        let out = highlight_markup(line, "stan");
-        assert!(
-            out.contains("<b>"),
-            "should still produce a highlighted result: {out}"
-        );
-    }
-
-    #[test]
-    fn highlight_markup_escapes_html_in_surrounding_text() {
-        let out = highlight_markup("<tag> world", "world");
-        assert!(out.contains("&lt;tag&gt;"));
+    fn open_documents_are_searched_as_typed_with_accents_folded() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.typ");
+        let b = dir.path().join("b.typ");
+        std::fs::write(&a, "nothing here\n").unwrap();
+        std::fs::write(&b, "first line\n  Žižek on the\nfield\n").unwrap();
+        let files = typ_files(dir.path(), &[]);
+        assert_eq!(files, vec![a.clone(), b.clone()]);
+        let open = vec![(a.clone(), "unsaved\nzizek typed zizek\n".to_string())];
+        let q = Query::new("zizek", Options::default()).unwrap();
+        let found = search_files(&files, &open, &q, 10);
+        let lines: Vec<_> = found.iter().map(|m| (m.file.clone(), m.line)).collect();
+        assert_eq!(lines, vec![(a, 2), (b.clone(), 2)]);
+        assert_eq!(found[1].preview, "Žižek on the");
+        assert_eq!(&found[1].preview[found[1].bold.0..found[1].bold.1], "Žižek");
+        let across = Query::new("the field", Options::default()).unwrap();
+        assert_eq!(search_files(&files, &[], &across, 10)[0].line, 2);
     }
 }

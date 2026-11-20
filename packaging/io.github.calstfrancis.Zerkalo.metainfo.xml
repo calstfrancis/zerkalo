@@ -14,7 +14,7 @@
     <p>Editor features:</p>
     <ul>
       <li>Multi-file tabs with modified indicator and inline compile-error dots</li>
-      <li>Syntax highlighting, find and replace, auto-pair brackets — selecting text and typing an opening bracket or quote wraps the selection instead of replacing it</li>
+      <li>Syntax highlighting, find and replace that ignores accents and line breaks with marks beside the scrollbar and the preview following the current match, project-wide find in files, auto-pair brackets — selecting text and typing an opening bracket or quote wraps the selection instead of replacing it</li>
       <li>Ctrl+B / Ctrl+I bold and italic formatting with toggle-off support</li>
       <li>Writing helpers — lists continue on Enter and nest with Tab, paste a web address over selected text to make a link, Alt+Up / Alt+Down move lines, Alt+Shift+Right / Left select more or less, and matching *, _, $ and quotes are highlighted</li>
       <li>Inline completion — type # for a dim suggestion after the cursor previewing what will be inserted, with its signature and keys in the status bar; Tab accepts, and a compact ranked list joins in once the prefix narrows things down. Backed by bundled tinymist where available</li>
@@ -88,6 +88,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.62.0" date="2026-11-20">
+      <description>
+        <p>0.62.0 "Keen Glass" — a better find bar. Ctrl+F opens it and then steps to the next match, Ctrl+H adds replace, and searching as you type waits for three letters so long documents stay smooth. The current match is in your accent colour and centred, with marks beside the scrollbar and the preview following along. Searches ignore accents, become case-sensitive when you type a capital, and find phrases across line breaks; the count stays right as you edit. Replace All no longer touches text simple mode hides, and Find in files searches unsaved typing the same way.</p>
+      </description>
+    </release>
     <release version="0.61.4" date="2026-11-20">
       <description>
         <p>0.61.4 "Quick Silver" — bibliographies that keep up. An edit in Kartoteka or a Zotero auto-export now reaches the preview and PDF within about a second, without a keystroke to trigger it: Zerkalo compiles a vault from its entries rather than a library.yml that could lag behind, and the project's copy of a bibliography follows its own original whichever document uses it.</p>

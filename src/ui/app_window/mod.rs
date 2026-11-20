@@ -504,6 +504,7 @@ impl AppWindow {
                 );
             });
             editor_pane.status_bar_insert_after_safety(&btn);
+            editor_pane.status_bar_place_search_after(&btn);
         }
 
         editor_pane.set_completion_picks(proj_cfg.completion_picks.clone());
@@ -1971,6 +1972,11 @@ impl AppWindow {
                 }
                 editor_for_source.jump_to_offset(&path, offset);
             });
+            // The preview follows the find bar's current match.
+            let preview_for_find = preview_pane.clone();
+            editor_pane.set_on_find_current(move |path, offset| {
+                preview_for_find.show_source(&path, offset);
+            });
             let preview_for_show = preview_pane.clone();
             let toast_for_show = toast_overlay.clone();
             editor_pane.set_on_show_in_preview(move |path, offset| {
@@ -2643,6 +2649,10 @@ impl AppWindow {
         // Seed recent searches from config
         search_panel.set_recent_searches(config.recent_searches.clone());
 
+        {
+            let panel = search_panel.clone();
+            editor_pane.set_on_find_in_files(move |text| panel.show_with(&text));
+        }
         // Search panel is hidden by default; Ctrl+Shift+F toggles it
         search_panel.widget().set_visible(false);
 
@@ -2876,7 +2886,8 @@ impl AppWindow {
                     }
                 } else {
                     match id {
-                        "toggle_find" => editor_for_pal.toggle_find(),
+                        "toggle_find" => editor_for_pal.find_open_or_next(),
+                        "find_replace" => editor_for_pal.find_open_replace(),
                         // Forwarded to the menu row so this is the same save
                         // the ≡ menu and Ctrl+S do — snapshot and recompile
                         // included, which `save_all_modified` alone skips.
@@ -3173,7 +3184,11 @@ impl AppWindow {
                 }
             }
             if matches_binding(&kb.find, ctrl, shift, alt, key) {
-                editor.toggle_find();
+                editor.find_open_or_next();
+                return glib::Propagation::Stop;
+            }
+            if matches_binding(&kb.replace, ctrl, shift, alt, key) {
+                editor.find_open_replace();
                 return glib::Propagation::Stop;
             }
             if matches_binding(&kb.quit, ctrl, shift, alt, key) {
@@ -3773,7 +3788,8 @@ fn show_dynamic_shortcuts_window(
         "Editing\n\
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
          Save                {save}\n\
-         Find & replace      {find}\n\
+         Find / next match   {find}\n\
+         Find & replace      {replace}\n\
          Next tab            {next_tab}\n\
          Previous tab        {prev_tab}\n\
          Add reference       {add_ref}\n\n\
@@ -3795,6 +3811,7 @@ fn show_dynamic_shortcuts_window(
          Keybindings file: ~/.config/zerkalo/keybindings.toml",
         save = d(&kb.save),
         find = d(&kb.find),
+        replace = d(&kb.replace),
         next_tab = d(&kb.next_tab),
         prev_tab = d(&kb.prev_tab),
         add_ref = d(&kb.add_reference),

@@ -58,6 +58,7 @@ mod spellcheck;
 mod style_spec;
 mod styles;
 mod templates;
+mod text_search;
 mod typst_universe;
 mod ui;
 mod user_templates;

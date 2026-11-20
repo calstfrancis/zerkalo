@@ -373,18 +373,21 @@ pub(super) fn build_status_bar() -> StatusBar {
 
     // ── Status bar assembly ───────────────────────────────────────────────
     //
-    // The completion hint leads, alone, with every standing control packed
-    // to the far right behind an expanding spacer. The hint is the only
+    // The completion hint follows the save state, writing history and search,
+    // with every standing control packed to the far right behind an
+    // expanding spacer. The hint is the only
     // thing here that changes with what you're doing rather than how the
     // app is set up, and it needs room for a name, a description and its
     // keys — so it gets the whole left half of the window and the settings
     // queue up out of its way.
+    // Search sits on the left, beside the save state (app_window puts
+    // "writing history" between the two), where the eye already is.
     status_bar.append(&safe_btn);
+    status_bar.append(&search_btn);
     status_bar.append(&lsp_status_label);
     status_bar.append(&left_spacer);
     status_bar.append(&autosave_toggle_btn);
     status_bar.append(&format_bar_toggle_btn);
-    status_bar.append(&search_btn);
     status_bar.append(&sb_sep1);
     status_bar.append(&cursor_label);
     status_bar.append(&diag_btn);

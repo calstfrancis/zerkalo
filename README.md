@@ -34,8 +34,8 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Tell Kartoteka** | Off by default. With a Kartoteka vault as the source, adds one small file to the vault's `projects/` folder (named for this computer) listing the project's documents, so Kartoteka's *Used in* shows where each source is cited |
 | **First-run bibliography** | The Citations panel can start a brand-new `.bib` file with one click — no need to already have one before adding your first source |
 | **Inline diagnostics** | Things to look at, shown as underlines in the editor, a quiet count at the bottom and a dimmed "Preview paused" note over the last good preview; warnings are just "notes". The "Things to look at" panel translates Typst's message into plain language, quotes the line with the exact characters at fault underlined, and offers one main button (Fix, or Show me) plus a ⋯ menu (copy details, search the Typst forum); F8 / Shift+F8 step through them. A "Show technical details" switch adds the exact wording. If you stay stuck, a "Still stuck?" section shows what changed since it last worked, can go back to that version, and can copy a help request. A failed save (full disk, read-only folder…) stays as a bar above the editor with Try again / Save a copy elsewhere, and other failures give a plain-language reason |
-| **Find & replace** | `Ctrl+F`; forward/backward; animated slide-in bar; replace one or all |
-| **Find in files** | `Ctrl+Shift+F`; project-wide search |
+| **Find & replace** | `Ctrl+F` opens the bar (with your selection, if any) and pressing it again moves to the next match; Enter / Shift+Enter step forward and back; `Ctrl+H` opens it with Replace. Searches as you type from three letters. Accents are ignored unless you ask (`zizek` finds Žižek), a capital letter makes the search case-sensitive, and a space also matches a line break, so a phrase the source wraps is still found. Every match is highlighted with marks beside the scrollbar, the current one in your accent colour, centred, with the preview following it; the count stays right while you edit. Replace one or all (one undo step, never touching text simple mode hides), with `$1` groups in regex mode. Screen readers hear "3 of 20" |
+| **Find in files** | `Ctrl+Shift+F`, or "All files" in the find bar; searches every `.typ` file in the project the same way, including unsaved typing in open documents, and replaces across them |
 | **Spell check** | Blue wavy underlines on misspelled prose words; right-click for suggestions, Ignore all; language selector in Settings; optional autocorrect on word boundary |
 | **Breadcrumb bar** | Heading path shown above the editor (e.g. "Introduction › Methods") updated as the cursor moves |
 | **Auto-pair brackets** | Typing `(`, `[`, `{`, or `"` inserts the closing character and positions the cursor between them |
@@ -243,7 +243,8 @@ If Zerkalo ever crashes, it appends what went wrong (the message, the line of co
 | `Ctrl+Shift+P` | Compile and refresh preview |
 | `Ctrl+Shift+E` | Export PDF to the Export dialog's remembered folder (no dialog) |
 | `Ctrl+P` | Print |
-| `Ctrl+F` | Find & replace |
+| `Ctrl+F` | Find & replace; again for the next match |
+| `Ctrl+H` | Find & replace |
 | `Ctrl+Shift+F` | Find in files (project-wide) |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `Ctrl+Left/Right` | Word jump (Typst-aware: `#keyword` and `@cite` count as one unit) |

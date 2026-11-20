@@ -10,6 +10,8 @@ pub struct Keybindings {
     pub compile: String,
     #[serde(default = "default_find")]
     pub find: String,
+    #[serde(default = "default_replace")]
+    pub replace: String,
     #[serde(default = "default_quit")]
     pub quit: String,
     #[serde(default = "default_next_tab")]
@@ -34,6 +36,7 @@ impl Default for Keybindings {
             save: default_save(),
             compile: default_compile(),
             find: default_find(),
+            replace: default_replace(),
             quit: default_quit(),
             next_tab: default_next_tab(),
             prev_tab: default_prev_tab(),
@@ -54,6 +57,9 @@ fn default_compile() -> String {
 }
 fn default_find() -> String {
     "ctrl+f".to_string()
+}
+fn default_replace() -> String {
+    "ctrl+h".to_string()
 }
 fn default_quit() -> String {
     "ctrl+q".to_string()
@@ -196,6 +202,7 @@ fn fill(text: &str, kb: &Keybindings) -> String {
         ("{save}", d(&kb.save)),
         ("{compile}", d(&kb.compile)),
         ("{find}", d(&kb.find)),
+        ("{replace}", d(&kb.replace)),
         ("{quit}", d(&kb.quit)),
         ("{next_tab}", d(&kb.next_tab)),
         ("{prev_tab}", d(&kb.prev_tab)),

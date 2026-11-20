@@ -1,13 +1,17 @@
-<!-- zerkalo-release: 0.61.4 -->
+<!-- zerkalo-release: 0.62.0 -->
 ### What's new
 
-Bibliographies that keep up with Kartoteka and Zotero.
+A find bar that keeps its place and finds what you mean.
 
-**Changes in Kartoteka reach your document.** Adding a date or fixing a title in Kartoteka showed up in Zerkalo's Citations panel but not in the preview or PDF, even after compiling again. The panel was reading the vault's sources live, while the compile read a summary file (`library.yml`) that Kartoteka didn't rewrite after every edit. Zerkalo now compiles from the sources themselves, so the panel and the document always agree. Kartoteka 0.26.1 also keeps that summary file current, for anything else that reads it.
+**Ctrl+F, then Ctrl+F again.** The first press opens search, with your selected text already in it; each press after that goes to the next match (Shift+Enter goes back). Escape closes it and keeps your search for next time. Ctrl+H opens it with Replace, which now waits folded under the search until you want it.
 
-**The project's copy of your bibliography stays current.** When your bibliography lives outside the project, Zerkalo keeps a copy inside it (`references.bib` or `references.yaml`) so the document compiles on any computer. That copy was refreshed only for the bibliography named in Settings, so a document using your Zotero library while Settings named your Kartoteka vault never got updates. Each copy now follows its own original, and on the computer that has the original, the preview reads it directly.
+**Smooth in long documents.** Searching as you type now starts at three letters, after a short pause, and refines the match from where you started instead of jumping onward with each letter. The match you're on is in your accent colour and centred in the editor, every other match is highlighted, small marks beside the scrollbar show where they all are, and the preview scrolls to follow. The count stays right while you keep writing.
 
-**No keystroke needed.** A Zotero auto-export or a Kartoteka edit used to sit unseen until you next typed something. With Auto compile on, the preview now updates by itself within about a second.
+**Finds what you mean.** Accents are ignored, so "zizek" finds "Žižek" (the á button matches them exactly). Typing a capital letter makes the search case-sensitive. A space also matches a line break, so a phrase that wraps onto the next line in the source is still found.
+
+**Across the project.** "All files" in the find bar hands your search to Find in files (Ctrl+Shift+F), which now searches what's on screen in open documents, unsaved typing included, and matches the same way.
+
+**Safer replacing.** Replace All no longer changes text that simple mode hides, and stays one undo step. The search toggle in the status bar has moved to the left, beside "writing history", and screen readers now hear each result.
 
 ---
 

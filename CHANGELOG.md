@@ -3,6 +3,35 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.62.0] "Keen Glass" — 2026-11-20 — A better find bar
+
+### Added
+
+- **Ctrl+H opens find and replace.** The replace box now stays folded away under the search until you want it (Ctrl+H or the replace button), on its own line so the bar never crowds the editor. Enter in the replace box replaces the match and moves on.
+- **Accents are ignored.** "zizek" finds "Žižek" and "gutierrez" finds "Gutiérrez"; the new **á** button matches accents exactly when you need it.
+- **A capital letter makes the search case-sensitive.** "Kant" finds only "Kant"; "kant" still finds both. The **Aa** button still forces it.
+- **Phrases across line breaks.** A space in the search also matches a line break, so a phrase the source wraps onto the next line is still found.
+- **Marks beside the scrollbar** show where every match is in the document, the current one stronger.
+- **The preview follows the current match**, scrolling to it and briefly highlighting the line.
+- **The count keeps up while you edit.** With the bar open, typing in the document updates the highlights and "3 of 20" without moving your cursor; switching tabs shows the other document's matches.
+- **Your selection becomes the search.** Select a word or phrase and press Ctrl+F to search for it. Escape keeps your last search for next time.
+- **"All files"** in the find bar hands the search to Find in files (Ctrl+Shift+F).
+- **Screen readers hear the result** ("3 of 20", "No results") after each step, on GTK 4.14 and later.
+
+### Changed
+
+- **Ctrl+F opens search, then moves to the next match.** It used to close the bar on the second press; Escape or the status-bar toggle closes it now. Shift+Enter in the find box goes back a match.
+- **Search waits for three letters before searching as you type.** One or two letters match nearly everywhere, and searching a long document for each made the view jump and typing lag; typing now refines the match from where you started rather than hopping onward with each letter. Enter still searches for anything shorter.
+- **The current match stands out.** Every match is highlighted, and the one you're on is in your accent colour, centred in the editor. Moving to the next match moves the colour and the view with it.
+- **The search toggle sits on the left of the status bar**, right after "writing history".
+- **Find in files searches what's on screen.** It reads open documents as you've typed them, not as last saved, matches the same way as the find bar (accents, capitals, line breaks), and lists each line once.
+
+### Fixed
+
+- **Replace All no longer changes text you can't see.** In simple mode it used to rewrite matches in the hidden template too.
+- **Long documents scroll to the match.** Jumping to a match far down a long document could leave the view where it was, because the scroll was cancelled before GTK had laid out the lines in between.
+- **Search no longer stops on text simple mode hides**, and regular-expression and whole-word searches no longer slow down sharply in documents with many matches. Replace in regular-expression mode fills in `$1`-style groups, and the highlights and the search itself now always agree on what a pattern matches.
+
 ## [0.61.4] "Quick Silver" — 2026-11-20 — Bibliographies that keep up
 
 ### Fixed
