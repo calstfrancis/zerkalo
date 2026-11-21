@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.63.1] "Warm Ember" — 2026-11-21 — A spelling mark you can see in the dark
+
+### Changed
+
+- **The spelling mark is much easier to see in dark mode.** Dark pages now get a warm amber wavy line with a faint amber wash behind the word, instead of a blue line that all but disappeared. Light pages keep the blue.
+
 ## [0.63.0] "Careful Quill" — 2026-11-20 — A spell check you can walk through
 
 ### Added

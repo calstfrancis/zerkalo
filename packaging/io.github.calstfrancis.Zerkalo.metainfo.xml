@@ -88,6 +88,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.63.1" date="2026-11-21">
+      <description>
+        <p>0.63.1 "Warm Ember" — a spelling mark you can see in the dark. On dark pages a misspelled word now gets a warm amber wavy line and a faint amber wash behind it, instead of a blue line that all but disappeared; light pages keep the blue.</p>
+      </description>
+    </release>
     <release version="0.63.0" date="2026-11-20">
       <description>
         <p>0.63.0 "Careful Quill" — a spell check you can walk through. Shift+F7 steps through every misspelled word in the document, showing it in its sentence with suggestions, and lets you change it, change every one, skip it, skip every one, or add it to your dictionary or the project's. The wavy underline is also easier to see in dark mode.</p>

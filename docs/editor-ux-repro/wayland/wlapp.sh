@@ -14,6 +14,7 @@ python3 $S/mkdoc.py $W/main.typ
 git -C $W init -q; git -C $W add -A; git -C $W -c user.name=T -c user.email=t@e.com commit -q -m i; [ -n "${NOREMOTE:-}" ] || git -C $W remote add origin https://example.com/x.git
 echo -n "${ZVER:-$(grep "^version" Cargo.toml | head -1 | sed "s/version = \"\(.*\)\"/\1/")}" > $XDG_DATA_HOME/zerkalo/.welcome_version
 if [ -n "${SPELL_LANG:-}" ]; then mkdir -p $XDG_CONFIG_HOME/zerkalo; printf 'spell_languages = ["%s"]\n' "$SPELL_LANG" > $XDG_CONFIG_HOME/zerkalo/config.toml; fi
+if [ -n "${DARK:-}" ]; then mkdir -p $XDG_CONFIG_HOME/glib-2.0/settings; printf "[org/gnome/desktop/interface]\ncolor-scheme='prefer-dark'\n" > $XDG_CONFIG_HOME/glib-2.0/settings/keyfile; export ADW_DISABLE_PORTAL=1 GSETTINGS_BACKEND=keyfile; fi
 unset DISPLAY
 export WAYLAND_DISPLAY=zk-test-$$
 gnome-shell --headless --wayland --no-x11 --wayland-display=$WAYLAND_DISPLAY --virtual-monitor 1400x900 > $S/shell.log 2>&1 & SP=$!

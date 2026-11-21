@@ -4,19 +4,26 @@ use super::*;
 
 pub(super) fn ensure_spell_tag(buffer: &Buffer) {
     let table = buffer.tag_table();
-    // A deeper blue on light pages, a bright one on dark: the same blue that
-    // reads well on white all but vanishes against a dark page.
-    let colour = if adw::StyleManager::default().is_dark() {
-        gtk4::gdk::RGBA::new(0.45, 0.75, 1.0, 1.0)
+    // The thin wavy line the same blue everywhere all but vanished on a dark
+    // page, so dark pages get a warm amber line with a faint wash behind the
+    // word: easy to spot, and not an alarm.
+    let dark = adw::StyleManager::default().is_dark();
+    let colour = if dark {
+        gtk4::gdk::RGBA::new(1.0, 0.76, 0.30, 1.0)
     } else {
         gtk4::gdk::RGBA::new(0.12, 0.42, 0.90, 1.0)
     };
+    let wash = dark.then(|| gtk4::gdk::RGBA::new(1.0, 0.76, 0.30, 0.14));
     match table.lookup("zerkalo-spell") {
-        Some(tag) => tag.set_underline_rgba(Some(&colour)),
+        Some(tag) => {
+            tag.set_underline_rgba(Some(&colour));
+            tag.set_background_rgba(wash.as_ref());
+        }
         None => {
             let tag = TextTag::new(Some("zerkalo-spell"));
             tag.set_underline(gtk4::pango::Underline::Error);
             tag.set_underline_rgba(Some(&colour));
+            tag.set_background_rgba(wash.as_ref());
             table.add(&tag);
         }
     }
