@@ -325,7 +325,13 @@ fn wire_paste_link(view: &View, buffer: &Buffer) {
                     buf.begin_user_action();
                     buf.delete(&mut s, &mut e);
                     let mut at = buf.iter_at_offset(so);
-                    buf.insert(&mut at, &format!("#link(\"{url}\")[{selected}]"));
+                    buf.insert(
+                        &mut at,
+                        &format!(
+                            "#link(\"{}\")[{selected}]",
+                            crate::typst_text::string_body(&url)
+                        ),
+                    );
                     buf.end_user_action();
                 }
                 _ => v.emit_by_name::<()>("paste-clipboard", &[]),

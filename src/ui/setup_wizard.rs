@@ -279,10 +279,16 @@ fn connect_page(
                 // The display name and commit address come from the account, so
                 // the user is never asked to type either. Fetched in the
                 // background; the confirm page fills it in when it lands.
-                if let Some(token) = crate::secret_store::load_github_token() {
+                {
                     let (tx, rx) = sync_channel(1);
                     std::thread::spawn(move || {
-                        let _ = tx.send(crate::github_auth::fetch_identity(&token));
+                        let identity =
+                            crate::secret_store::load_github_token()
+                                .ok_or(())
+                                .and_then(|token| {
+                                    crate::github_auth::fetch_identity(&token).map_err(|_| ())
+                                });
+                        let _ = tx.send(identity);
                     });
                     let state = state.clone();
                     let login = username.clone();

@@ -2559,7 +2559,10 @@ fn migrate_template_it_numbering(content: &str) -> String {
         } else {
             num_fmt
         };
-        format!("#context counter(heading).display(\"{f}\")#h(0.3em)")
+        format!(
+            "#context counter(heading).display(\"{}\")#h(0.3em)",
+            crate::typst_text::string_body(&f)
+        )
     } else {
         String::new()
     };

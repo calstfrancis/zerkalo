@@ -343,7 +343,7 @@ fn wrapper_source(
 }
 
 fn typst_string(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    crate::typst_text::string_body(s)
 }
 
 /// The bibliography a document with no `#bibliography(...)` line of its own
@@ -487,31 +487,51 @@ struct ZerkaloWorld {
     source_cache: Mutex<HashMap<FileId, FileResult<Source>>>,
     file_cache: Mutex<HashMap<FileId, FileResult<Bytes>>>,
     overrides: HashMap<PathBuf, String>,
+    /// Real files outside the project that this compile may read, each one
+    /// named exactly — never a folder. See `allow_external`.
+    external: std::collections::HashSet<PathBuf>,
     library: LazyHash<Library>,
     export: bool,
+}
+
+/// Bibliography file types a document may name by absolute path from outside
+/// its project. The list is what keeps a document that names `/anything` from
+/// being able to read it with `read()`.
+fn is_external_bib_ext(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            matches!(
+                e.to_ascii_lowercase().as_str(),
+                "bib" | "bibtex" | "yml" | "yaml"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// The canonical path of `path` if it is a bibliography file that exists and
+/// may be read from outside the project, else `None`.
+fn allow_external(path: &Path) -> Option<PathBuf> {
+    if !is_external_bib_ext(path) {
+        return None;
+    }
+    let canon = std::fs::canonicalize(path).ok()?;
+    canon.is_file().then_some(canon)
 }
 
 impl ZerkaloWorld {
     /// `extra_root` is a path a document needs to read that may live outside
     /// the project — a configured `bib_path`, most commonly a Kartoteka
-    /// vault, which is meant to be shared across projects rather than living
-    /// inside any one of them. When it's outside the project directory, the
-    /// World's root widens to the filesystem root (`/`) so it's reachable at
-    /// all: Typst treats a leading `/` in a path argument as rooted at the
-    /// World's root, not the real filesystem, so a genuinely external
-    /// absolute path otherwise silently resolves to
-    /// `<project_root>/<extra_root>` instead of the real location — confirmed
-    /// by direct reproduction (`error: file not found (searched at
-    /// <project>/<extra_root>...)`) before this widening existed. Ordinary
-    /// projects with no such path keep the tighter, project-scoped root.
+    /// vault, which is meant to be shared across projects.
     ///
-    /// `extra_root` alone isn't enough, though: it only reflects
-    /// `Config::bib_path`, which nothing keeps in sync with a
-    /// `#bibliography(...)` line typed or pasted straight into the document
-    /// (by hand, or via a flow — like an early draft of Update Template
-    /// Settings — that never wrote it back to Settings). So this also scans
-    /// the document's own active `#bibliography(...)` call for its path
-    /// argument and widens for that too, independent of `extra_root`.
+    /// Typst treats a leading `/` in a path argument as rooted at the World's
+    /// root, so a genuinely external absolute path would otherwise resolve to
+    /// `<project_root>/<path>`. The root used to be widened to `/` to make it
+    /// reachable, which let any document read any file (`#read("/etc/passwd")`
+    /// after a commented-out `#bibliography("/x.bib")`). The root now never
+    /// leaves the project: each external bibliography is allowed by its exact
+    /// path and extension (`external`), and `resolve` serves nothing else from
+    /// outside the project folder — symlinks out of it included.
     fn new(
         root_file: &Path,
         overrides: HashMap<PathBuf, String>,
@@ -534,14 +554,6 @@ impl ZerkaloWorld {
             .parent()
             .ok_or_else(|| format!("no parent directory: {}", root_file.display()))?
             .to_path_buf();
-
-        let is_outside_project = |candidate: &Path| {
-            let canon_project =
-                std::fs::canonicalize(&project_root).unwrap_or_else(|_| project_root.clone());
-            let canon_candidate =
-                std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
-            !canon_candidate.starts_with(&canon_project)
-        };
 
         let content = overrides
             .get(root_file)
@@ -584,12 +596,27 @@ impl ZerkaloWorld {
             )
         };
 
-        let needs_widening = extra_root.is_some_and(is_outside_project)
-            || doc_bib_abs_path.as_deref().is_some_and(is_outside_project)
-            || hidden_bib
-                .as_ref()
-                .is_some_and(|h| is_outside_project(&h.path));
-
+        let canon_project =
+            std::fs::canonicalize(&project_root).unwrap_or_else(|_| project_root.clone());
+        let is_outside_project = |candidate: &Path| {
+            let canon =
+                std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
+            !canon.starts_with(&canon_project)
+        };
+        let mut external = std::collections::HashSet::new();
+        for candidate in [
+            extra_root.map(Path::to_path_buf),
+            doc_bib_abs_path.clone(),
+            hidden_bib.as_ref().map(|h| h.path.clone()),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|c| is_outside_project(c))
+        {
+            if let Some(canon) = allow_external(&candidate) {
+                external.insert(canon);
+            }
+        }
         let force_split = content
             .as_deref()
             .is_some_and(|c| custom_csl_is_note_style(c, &project_root));
@@ -597,17 +624,11 @@ impl ZerkaloWorld {
             .as_deref()
             .is_some_and(crate::styles::combines_serial_citations);
 
-        let (root, abs_root_file) = if needs_widening {
-            let canon =
-                std::fs::canonicalize(root_file).unwrap_or_else(|_| root_file.to_path_buf());
-            (PathBuf::from("/"), canon)
-        } else {
-            (project_root.clone(), root_file.to_path_buf())
-        };
+        let (root, abs_root_file) = (project_root.clone(), root_file.to_path_buf());
 
         let hidden_bib_code = hidden_bib.map(|h| {
             // Typst reads a path starting with `/` from the World's root.
-            let written = if needs_widening {
+            let written = if is_outside_project(&h.path) {
                 let abs = std::fs::canonicalize(&h.path).unwrap_or(h.path);
                 abs.to_string_lossy().into_owned()
             } else {
@@ -647,6 +668,7 @@ impl ZerkaloWorld {
             source_cache: Mutex::new(HashMap::new()),
             file_cache: Mutex::new(HashMap::new()),
             overrides,
+            external,
             library,
             export,
         })
@@ -654,18 +676,40 @@ impl ZerkaloWorld {
 
     fn resolve(&self, id: FileId) -> FileResult<PathBuf> {
         let vpath = id.vpath();
-        let base = match id.root() {
-            VirtualRoot::Project => self.root.clone(),
-            VirtualRoot::Package(spec) => package_storage()
-                .obtain(spec)
-                .map_err(FileError::Package)?
-                .path()
-                .to_path_buf(),
-        };
-
-        vpath
-            .realize(&base)
-            .map_err(|_| FileError::NotFound(PathBuf::from(vpath.get_without_slash())))
+        let not_found = || FileError::NotFound(PathBuf::from(vpath.get_without_slash()));
+        match id.root() {
+            VirtualRoot::Package(spec) => {
+                let base = package_storage()
+                    .obtain(spec)
+                    .map_err(FileError::Package)?
+                    .path()
+                    .to_path_buf();
+                vpath.realize(&base).map_err(|_| not_found())
+            }
+            VirtualRoot::Project => {
+                let path = vpath.realize(&self.root).map_err(|_| not_found())?;
+                if self.overrides.contains_key(&path) {
+                    return Ok(path);
+                }
+                let absolute = Path::new("/").join(vpath.get_without_slash());
+                if let Some(real) = std::fs::canonicalize(&absolute)
+                    .ok()
+                    .filter(|real| self.external.contains(real))
+                {
+                    return Ok(real);
+                }
+                // A symlink inside the project that points outside it is not
+                // followed: a shared project must not be able to read the
+                // reader's files through one.
+                match (
+                    std::fs::canonicalize(&path),
+                    std::fs::canonicalize(&self.root),
+                ) {
+                    (Ok(real), Ok(root)) if !real.starts_with(&root) => Err(not_found()),
+                    _ => Ok(path),
+                }
+            }
+        }
     }
 }
 
@@ -2571,5 +2615,88 @@ _profiles:
                 "{src:?}: raw engine text leaked"
             );
         }
+    }
+
+    fn sandbox_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("zk_sandbox_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn compile_err(file: &Path) -> Option<String> {
+        let o: HashMap<PathBuf, String> = HashMap::new();
+        let i: HashMap<String, String> = HashMap::new();
+        compile_to_pdf_bytes(file, &o, &i, None).err()
+    }
+
+    #[test]
+    fn a_commented_bibliography_line_does_not_open_the_whole_disk() {
+        let secret = sandbox_dir("secret_a").join("secret.txt");
+        std::fs::write(&secret, "TOPSECRET").unwrap();
+        let dir = sandbox_dir("a");
+        let doc = dir.join("doc.typ");
+        std::fs::write(
+            &doc,
+            format!(
+                "/*\n#bibliography(\"/nope.bib\")\n*/\n#panic(read(\"{}\"))\n",
+                secret.display()
+            ),
+        )
+        .unwrap();
+        let err = compile_err(&doc).expect("must fail");
+        assert!(
+            !err.contains("TOPSECRET"),
+            "file outside the project was read: {err}"
+        );
+        assert!(err.contains("not found"), "{err}");
+    }
+
+    #[test]
+    fn a_bibliography_path_only_unlocks_that_one_file_type() {
+        let outside = sandbox_dir("secret_b");
+        std::fs::write(outside.join("key.pem"), "TOPSECRET").unwrap();
+        std::fs::write(
+            outside.join("refs.bib"),
+            "@book{a, title={T}, author={A B}, year={2000}}",
+        )
+        .unwrap();
+        let dir = sandbox_dir("b");
+        let doc = dir.join("doc.typ");
+        std::fs::write(
+            &doc,
+            format!(
+                "#bibliography(\"{}\")\n#panic(read(\"{}\"))\n",
+                outside.join("refs.bib").display(),
+                outside.join("key.pem").display()
+            ),
+        )
+        .unwrap();
+        let err = compile_err(&doc).expect("must fail");
+        assert!(!err.contains("TOPSECRET"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_out_of_the_project_is_not_followed() {
+        let outside = sandbox_dir("secret_c");
+        std::fs::write(outside.join("key.txt"), "TOPSECRET").unwrap();
+        let dir = sandbox_dir("c");
+        std::os::unix::fs::symlink(outside.join("key.txt"), dir.join("notes.txt")).unwrap();
+        let doc = dir.join("doc.typ");
+        std::fs::write(&doc, "#panic(read(\"notes.txt\"))\n").unwrap();
+        let err = compile_err(&doc).expect("must fail");
+        assert!(!err.contains("TOPSECRET"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_inside_the_project_still_works() {
+        let dir = sandbox_dir("d");
+        std::fs::write(dir.join("real.txt"), "INSIDE").unwrap();
+        std::os::unix::fs::symlink(dir.join("real.txt"), dir.join("link.txt")).unwrap();
+        let doc = dir.join("doc.typ");
+        std::fs::write(&doc, "#panic(read(\"link.txt\"))\n").unwrap();
+        assert!(compile_err(&doc).unwrap().contains("INSIDE"));
     }
 }

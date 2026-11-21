@@ -20,6 +20,7 @@ enum FlowUpdate {
 /// verification page, polls for approval, stores the resulting token in the
 /// system keyring, and reports the connected username back to `on_connected`.
 pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 'static) {
+    let on_connected = std::rc::Rc::new(on_connected);
     let dialog = adw::Window::builder()
         .title("Sign in with GitHub")
         .transient_for(parent)
@@ -117,14 +118,29 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
                     if cancelled.load(Ordering::Relaxed) {
                         return glib::ControlFlow::Break;
                     }
-                    if let Err(e) = crate::secret_store::save_github_token(&token) {
-                        status_lbl
-                            .set_label(&format!("Signed in, but couldn't store the token: {e}"));
-                        spinner.set_spinning(false);
-                        return glib::ControlFlow::Break;
-                    }
-                    dialog_poll.close();
-                    on_connected(username);
+                    // The keyring can hang, so it is asked off the main thread.
+                    let (status_lbl, spinner, dialog_poll) =
+                        (status_lbl.clone(), spinner.clone(), dialog_poll.clone());
+                    let on_connected = on_connected.clone();
+                    glib::spawn_future_local(async move {
+                        let saved = gtk4::gio::spawn_blocking(move || {
+                            crate::secret_store::save_github_token(&token)
+                        })
+                        .await
+                        .unwrap_or_else(|_| Err("the keyring didn't answer".to_string()));
+                        match saved {
+                            Ok(()) => {
+                                dialog_poll.close();
+                                on_connected(username);
+                            }
+                            Err(e) => {
+                                status_lbl.set_label(&format!(
+                                    "Signed in, but couldn't store the token: {e}"
+                                ));
+                                spinner.set_spinning(false);
+                            }
+                        }
+                    });
                     return glib::ControlFlow::Break;
                 }
                 Ok(FlowUpdate::Done(Err(e))) => {

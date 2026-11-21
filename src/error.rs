@@ -86,6 +86,17 @@ fn git_reason(e: &git2::Error) -> String {
 pub fn atomic_write(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
+    // A symlinked file is written through to its target: renaming over the
+    // link would replace the link with a plain file and leave the target
+    // (the real document) stale.
+    let resolved;
+    let path = if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        resolved = std::fs::canonicalize(path)?;
+        resolved.as_path()
+    } else {
+        path
+    };
+
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -218,6 +229,24 @@ mod tests {
             mode, 0o600,
             "a 0600 document must not become world-readable on save"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_through_a_symlink_updates_the_target_and_keeps_the_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real.typ");
+        let link = dir.path().join("link.typ");
+        std::fs::write(&target, "old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        atomic_write(&link, b"new").unwrap();
+
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
     }
 
     #[test]

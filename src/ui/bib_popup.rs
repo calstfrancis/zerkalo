@@ -44,7 +44,9 @@ impl PopupEntry {
     pub fn insert_text(&self) -> String {
         match self {
             PopupEntry::Bib(e) => format!("@{}", e.key),
-            PopupEntry::Cv(e) => format!("#cv-entry(\"{}\")", e.key),
+            PopupEntry::Cv(e) => {
+                format!("#cv-entry(\"{}\")", crate::typst_text::string_body(&e.key))
+            }
         }
     }
 

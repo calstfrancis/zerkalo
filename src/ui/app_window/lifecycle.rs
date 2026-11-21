@@ -397,47 +397,56 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
         let badge = ctx.sync_badge.clone();
         let root_fallback = ctx.project_root.clone();
         glib::idle_add_local_once(move || {
-            let root = editor
+            let dir = editor
                 .get_active_path()
-                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-                .and_then(|dir| crate::git_sync::git_repo_root(&dir))
-                .unwrap_or(root_fallback);
-            super::sync::refresh_badge(&root, &badge);
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+            glib::spawn_future_local(async move {
+                if let Some(p) = super::sync::probe(dir, root_fallback, false).await {
+                    super::sync::apply_badge(&badge, p.pending);
+                }
+            });
         });
     }
 
     glib::timeout_add_local(Duration::from_secs(30), move || {
-        let root = editor_for_autosync
-            .get_active_path()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-            .and_then(|dir| crate::git_sync::git_repo_root(&dir))
-            .unwrap_or_else(|| root_for_autosync.clone());
-
-        // Reflect "there's something waiting to back up" on every tick, not
-        // just when a sync actually fires below — the badge should light up
-        // the moment a change lands, not 5 minutes later.
-        super::sync::refresh_badge(&root, &sync_badge_for_autosync);
-        let dirty =
-            crate::git_sync::has_remote(&root) && !crate::git_sync::changed_files(&root).is_empty();
-
         let due = last_auto_sync
             .borrow()
             .map(|t| t.elapsed() >= AUTO_SYNC_INTERVAL)
             .unwrap_or(true);
-
-        if due && sync_btn_for_autosync.is_sensitive() && dirty {
-            *last_auto_sync.borrow_mut() = Some(std::time::Instant::now());
-            editor_for_autosync.save_all_modified();
-            sync_btn_for_autosync.set_sensitive(false);
-            let btn_done = sync_btn_for_autosync.clone();
-            super::sync::auto_sync_quiet(
-                root,
-                Some(overlay_for_autosync.clone()),
-                Some(sync_badge_for_autosync.clone()),
-                crate::secret_store::load_github_token(),
-                move || btn_done.set_sensitive(true),
-            );
-        }
+        let want_sync = due && sync_btn_for_autosync.is_sensitive();
+        let dir = editor_for_autosync
+            .get_active_path()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let fallback = root_for_autosync.clone();
+        let (editor, overlay, btn, badge, last) = (
+            editor_for_autosync.clone(),
+            overlay_for_autosync.clone(),
+            sync_btn_for_autosync.clone(),
+            sync_badge_for_autosync.clone(),
+            last_auto_sync.clone(),
+        );
+        glib::spawn_future_local(async move {
+            let Some(p) = super::sync::probe(dir, fallback, want_sync).await else {
+                return;
+            };
+            // Reflect "there's something waiting to back up" on every tick,
+            // not just when a sync fires — the badge should light up the
+            // moment a change lands, not 5 minutes later.
+            super::sync::apply_badge(&badge, p.pending);
+            if want_sync && p.pending && btn.is_sensitive() {
+                *last.borrow_mut() = Some(std::time::Instant::now());
+                editor.save_all_modified();
+                btn.set_sensitive(false);
+                let btn_done = btn.clone();
+                super::sync::auto_sync_quiet(
+                    p.root,
+                    Some(overlay),
+                    Some(badge),
+                    p.token,
+                    move || btn_done.set_sensitive(true),
+                );
+            }
+        });
         glib::ControlFlow::Continue
     });
 

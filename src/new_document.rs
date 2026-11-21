@@ -30,7 +30,11 @@ fn create_in(dir: &Path, title: &str) -> Option<PathBuf> {
         return Some(path);
     }
     fs::create_dir_all(dir).ok()?;
-    fs::write(&path, format!("= {title}\n\n")).ok()?;
+    fs::write(
+        &path,
+        format!("= {}\n\n", crate::doc_import::escape_text(title)),
+    )
+    .ok()?;
     Some(path)
 }
 

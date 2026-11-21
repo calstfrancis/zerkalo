@@ -59,6 +59,7 @@ mod style_spec;
 mod styles;
 mod templates;
 mod text_search;
+mod typst_text;
 mod typst_universe;
 mod ui;
 mod user_templates;
@@ -112,6 +113,11 @@ fn main() -> ExitCode {
     let log_dir = crate::config::zerkalo_data_dir();
     std::fs::create_dir_all(&log_dir).ok();
 
+    // One kept-back copy once the log passes 5 MB, so it can't grow without end.
+    let log_file = log_dir.join("zerkalo.log");
+    if std::fs::metadata(&log_file).is_ok_and(|m| m.len() > 5 * 1024 * 1024) {
+        let _ = std::fs::rename(&log_file, log_dir.join("zerkalo.log.old"));
+    }
     let file_appender = tracing_appender::rolling::never(&log_dir, "zerkalo.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 

@@ -234,7 +234,11 @@ fn show_import_history_dialog_filtered(
                 let output_dir = output.parent().map(|p| p.to_path_buf());
                 reveal_btn.connect_clicked(move |_| {
                     if let Some(dir) = &output_dir {
-                        let _ = crate::git_sync::host_command("xdg-open").arg(dir).spawn();
+                        gtk4::FileLauncher::new(Some(&gtk4::gio::File::for_path(dir))).launch(
+                            None::<&gtk4::Window>,
+                            gtk4::gio::Cancellable::NONE,
+                            |_| {},
+                        );
                     }
                 });
                 row.add_suffix(&reveal_btn);
@@ -629,7 +633,14 @@ fn build_pandoc_command(
         c.current_dir(input_dir);
         c
     };
-    cmd.arg(input_name)
+    // `./` so a file whose name starts with `-` is read as a file, not an option
+    // (`--lua-filter=…` would otherwise run a script).
+    let input_arg = if input_name.starts_with('/') {
+        input_name.to_string()
+    } else {
+        format!("./{input_name}")
+    };
+    cmd.arg(input_arg)
         .arg("-f")
         .arg(pandoc_from)
         .arg("-t")

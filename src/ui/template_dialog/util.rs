@@ -48,7 +48,7 @@ pub(crate) fn tab_label(text: &str) -> Label {
 /// Escape a value for use inside a Typst string literal `"..."`.
 /// Only `\` and `"` need escaping in Typst string context.
 pub(crate) fn typst_str(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    crate::typst_text::string_body(s)
 }
 
 /// A title-page field typed in the dialog. It reaches the page as a Typst

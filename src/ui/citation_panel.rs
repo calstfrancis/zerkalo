@@ -934,7 +934,7 @@ impl CitationPanel {
 /// box produces, from `fond_bib::cite`).
 fn insert_text_for(key: &str, cv: bool, page: &str) -> String {
     if cv {
-        format!("#cv-entry(\"{key}\")")
+        format!("#cv-entry(\"{}\")", crate::typst_text::string_body(key))
     } else {
         fond_bib::cite::typst_citation(key, Some(page))
     }

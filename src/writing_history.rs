@@ -249,7 +249,7 @@ fn parse(text: &str) -> Vec<Version> {
 
 /// A remote address with any `user:token@` part taken out, so the file can be
 /// handed over without handing over a sign-in.
-fn without_credentials(url: &str) -> String {
+pub(crate) fn without_credentials(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("://") else {
         return url.to_string();
     };

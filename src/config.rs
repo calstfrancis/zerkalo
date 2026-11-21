@@ -111,6 +111,12 @@ pub struct Config {
     pub recent_files: Vec<PathBuf>,
     #[serde(default)]
     pub recent_projects: Vec<PathBuf>,
+    /// Git folders other than the work folder that Zerkalo may back up on its
+    /// own (every few minutes, and on quit). A folder is added when the person
+    /// agrees to back it up; without this, opening one file inside someone's
+    /// code checkout would start committing and pushing that checkout.
+    #[serde(default)]
+    pub sync_repos: Vec<PathBuf>,
     #[serde(default)]
     pub bib_path: Option<PathBuf>,
     /// When the chosen bibliography lives outside the project folder, keep a
@@ -525,6 +531,7 @@ impl Default for Config {
             output_dir: None,
             recent_files: Vec::new(),
             recent_projects: Vec::new(),
+            sync_repos: Vec::new(),
             bib_path: None,
             mirror_bibliography: true,
             tell_kartoteka: false,
@@ -665,17 +672,40 @@ pub fn update(f: impl FnOnce(&mut Config)) -> Result<()> {
     cfg.save()
 }
 
+/// Drops the legacy `github_token` line from the config file, leaving every
+/// other setting exactly as it is.
+fn forget_plaintext_token() {
+    let Ok(path) = Config::config_file() else {
+        return;
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(mut table) = text.parse::<toml::Table>() else {
+        return;
+    };
+    if table.remove("github_token").is_some() {
+        if let Ok(out) = toml::to_string(&table) {
+            let _ = crate::error::atomic_write(&path, out.as_bytes());
+        }
+    }
+}
+
 impl Config {
     pub fn load() -> Result<Self> {
         let path = Self::config_file()?;
         let text = std::fs::read_to_string(&path)?;
         let mut cfg: Self = toml::from_str(&text)?;
         if let Some(tok) = cfg.github_token.take() {
-            if crate::secret_store::save_github_token(&tok).is_ok() {
-                let _ = cfg.save();
-            } else {
-                cfg.github_token = Some(tok);
-            }
+            // An old config kept the token in plain text. Moving it to the
+            // keyring can hang, so it happens off the main thread, and the
+            // plain-text copy is removed from the file only once it is stored.
+            cfg.github_token = Some(tok.clone());
+            std::thread::spawn(move || {
+                if crate::secret_store::save_github_token(&tok).is_ok() {
+                    forget_plaintext_token();
+                }
+            });
         }
         Ok(cfg)
     }

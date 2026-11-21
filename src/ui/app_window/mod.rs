@@ -3650,36 +3650,33 @@ impl AppWindow {
             // the app on quit.
             if !*git_synced.borrow() {
                 *git_synced.borrow_mut() = true;
-                let root = crate::git_sync::git_repo_root(&project_root_for_close)
-                    .unwrap_or_else(|| project_root_for_close.clone());
-                if crate::git_sync::has_remote(&root)
-                    && !crate::git_sync::changed_files(&root).is_empty()
-                {
-                    let closed = Rc::new(RefCell::new(false));
-                    let win_for_sync = win.clone();
-                    let closed_a = closed.clone();
-                    sync::auto_sync_quiet(
-                        root,
-                        None,
-                        Some(sync_badge_for_close.clone()),
-                        crate::secret_store::load_github_token(),
-                        move || {
-                            if !*closed_a.borrow() {
-                                *closed_a.borrow_mut() = true;
-                                win_for_sync.close();
-                            }
-                        },
-                    );
-                    let win_for_timeout = win.clone();
-                    let closed_b = closed.clone();
-                    glib::timeout_add_local_once(Duration::from_secs(6), move || {
-                        if !*closed_b.borrow() {
-                            *closed_b.borrow_mut() = true;
-                            win_for_timeout.close();
+                let closed = Rc::new(RefCell::new(false));
+                let win_for_timeout = win.clone();
+                let closed_b = closed.clone();
+                glib::timeout_add_local_once(Duration::from_secs(6), move || {
+                    if !*closed_b.borrow() {
+                        *closed_b.borrow_mut() = true;
+                        win_for_timeout.close();
+                    }
+                });
+                let win_for_sync = win.clone();
+                let badge = sync_badge_for_close.clone();
+                let dir = project_root_for_close.clone();
+                glib::spawn_future_local(async move {
+                    let finish = move || {
+                        if !*closed.borrow() {
+                            *closed.borrow_mut() = true;
+                            win_for_sync.close();
                         }
-                    });
-                    return glib::Propagation::Stop;
-                }
+                    };
+                    match sync::probe(Some(dir.clone()), dir, true).await {
+                        Some(p) if p.pending => {
+                            sync::auto_sync_quiet(p.root, None, Some(badge), p.token, finish);
+                        }
+                        _ => finish(),
+                    }
+                });
+                return glib::Propagation::Stop;
             }
 
             // Stage 3: finalize.

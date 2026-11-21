@@ -55,7 +55,7 @@ pub fn rename_cv_entry_key_in_text(text: &str, old_key: &str, new_key: &str) -> 
         let whole = caps.get(0).unwrap().as_str();
         let key = caps.get(1).unwrap().as_str();
         if key == old_key {
-            format!("#cv-entry(\"{new_key}\")")
+            format!("#cv-entry(\"{}\")", crate::typst_text::string_body(new_key))
         } else {
             whole.to_string()
         }

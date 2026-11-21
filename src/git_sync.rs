@@ -69,7 +69,80 @@ pub(crate) fn git_cmd(repo_path: &Path) -> Command {
     // only, leaving the user's global config (and their own commits made
     // elsewhere) untouched.
     cmd.args(["-c", "commit.gpgsign=false"]);
+    // A repository can carry its own config and hooks (a project folder that
+    // arrived as a zip, or a shared folder). Zerkalo runs git here on a timer,
+    // so neither a hook nor a `core.fsmonitor` command may ever run.
+    cmd.args([
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=false",
+    ]);
     cmd
+}
+
+/// Config keys that make git run a program, or reach somewhere else, because
+/// a repository says so. If a repository's own config sets one, Zerkalo
+/// leaves it alone rather than syncing it unattended.
+fn risky_config_key(key: &str, value: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    let last = key.rsplit('.').next().unwrap_or("");
+    matches!(
+        key.as_str(),
+        "core.sshcommand"
+            | "core.editor"
+            | "core.pager"
+            | "core.askpass"
+            | "core.gitproxy"
+            | "core.fsmonitor"
+            | "core.hookspath"
+            | "diff.external"
+            | "include.path"
+    ) || key.starts_with("includeif.")
+        || key.starts_with("filter.")
+        || key.starts_with("protocol.")
+        || (key.starts_with("url.") && last == "insteadof")
+        || (key.starts_with("remote.") && matches!(last, "uploadpack" | "receivepack" | "vcs"))
+        || (key.starts_with("diff.") && last == "textconv")
+        || (last == "helper"
+            && key.starts_with("credential")
+            && value.trim_start().starts_with('!'))
+}
+
+/// The name of a setting in this folder's own git config that runs a program,
+/// if there is one. Only reads the config; runs nothing.
+pub fn risky_repo_setting(repo_path: &Path) -> Option<String> {
+    let out = git_cmd(repo_path)
+        .args(["config", "--local", "--list"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once('=').unwrap_or((line, ""));
+            risky_config_key(key, value).then(|| key.to_string())
+        })
+}
+
+fn refuse_risky(repo_path: &Path) -> Option<String> {
+    risky_repo_setting(repo_path).map(|key| {
+        format!(
+            "This folder's git settings include \"{key}\", which can run a program. \
+             Zerkalo won't back it up automatically; remove that setting if it is yours."
+        )
+    })
+}
+
+/// Whether Zerkalo may back this git folder up on its own: the work folder's
+/// own repository, or one the person has agreed to (`listed`).
+pub fn repo_allowed(root: &Path, work_dir: &Path, listed: &[std::path::PathBuf]) -> bool {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let root = canon(root);
+    let work_root = git_repo_root(work_dir).unwrap_or_else(|| work_dir.to_path_buf());
+    root == canon(&work_root) || listed.iter().any(|l| canon(l) == root)
 }
 
 // ── Knowing when a sync is running or has run ────────────────────────────────
@@ -159,7 +232,7 @@ pub fn list_remotes(repo_path: &Path) -> Vec<String> {
             String::from_utf8_lossy(&out.stdout)
                 .lines()
                 .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty())
+                .filter(|l| !l.is_empty() && !l.starts_with('-'))
                 .collect()
         })
         .unwrap_or_default()
@@ -212,14 +285,15 @@ pub fn remove_remote(repo_path: &Path, name: &str) -> Result<(), String> {
 }
 
 /// Return all configured remotes except "origin", paired with their push URL.
-/// These are the backup / secondary remotes that `sync()` also pushes to.
+/// These are the backup / secondary remotes that `sync()` also pushes to. The
+/// address is for showing, so any `user:token@` part is left out.
 pub fn list_backup_remotes(repo_path: &Path) -> Vec<(String, String)> {
     list_remotes(repo_path)
         .into_iter()
         .filter(|n| n != "origin")
         .filter_map(|name| {
             let url = get_remote_url(repo_path, &name)?;
-            Some((name, url))
+            Some((name, crate::writing_history::without_credentials(&url)))
         })
         .collect()
 }
@@ -304,6 +378,16 @@ pub fn craft_message(changed: &[String]) -> String {
 /// remote URL itself. `pushed` is true if at least one remote succeeded.
 pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
     let _running = SyncRunning::begin();
+    if let Some(msg) = refuse_risky(repo_path) {
+        return SyncResult {
+            committed: false,
+            pushed: false,
+            commit_message: String::new(),
+            error: Some(msg),
+            push_errors: Vec::new(),
+            auth_failed: false,
+        };
+    }
     let changed = changed_files(repo_path);
     let msg = craft_message(&changed);
 
@@ -557,6 +641,9 @@ pub struct Waiting {
 /// can't be told (offline, no online copy, not signed in). Only fetches; it
 /// changes nothing in the folder.
 pub fn waiting_online(repo_path: &Path, github_token: Option<&str>) -> Option<Waiting> {
+    if risky_repo_setting(repo_path).is_some() {
+        return None;
+    }
     let remote = primary_remote(repo_path)?;
     fetch(repo_path, &remote, github_token).ok()?;
     let branch = head_branch(repo_path);
@@ -602,6 +689,10 @@ pub fn waiting_online(repo_path: &Path, github_token: Option<&str>) -> Option<Wa
 pub fn pull(repo_path: &Path, github_token: Option<&str>) -> PullResult {
     let _running = SyncRunning::begin();
     let mut result = PullResult::default();
+    if let Some(msg) = refuse_risky(repo_path) {
+        result.error = Some(msg);
+        return result;
+    }
 
     let Some(remote) = primary_remote(repo_path) else {
         result.error = Some("This folder isn't connected to an online backup yet.".into());
@@ -740,6 +831,10 @@ pub struct ForceResult {
 pub fn force_pull(repo_path: &Path, github_token: Option<&str>) -> ForceResult {
     let _running = SyncRunning::begin();
     let mut result = ForceResult::default();
+    if let Some(msg) = refuse_risky(repo_path) {
+        result.error = Some(msg);
+        return result;
+    }
 
     let Some(remote) = primary_remote(repo_path) else {
         result.error = Some("This folder isn't connected to an online backup yet.".into());
@@ -1322,5 +1417,84 @@ mod tests {
         identify(b.path());
         let r = force_pull(b.path(), None);
         assert!(r.error.is_none() && r.saved_as.is_none(), "{r:?}");
+    }
+
+    #[test]
+    fn config_keys_that_run_programs_are_recognised() {
+        assert!(risky_config_key("core.fsmonitor", "x"));
+        assert!(risky_config_key("core.sshCommand", "ssh -v"));
+        assert!(risky_config_key("filter.lfs.clean", "x"));
+        assert!(risky_config_key("remote.origin.uploadpack", "x"));
+        assert!(risky_config_key("credential.https://x.helper", "!run"));
+        assert!(!risky_config_key("credential.helper", "store"));
+        assert!(!risky_config_key(
+            "remote.origin.url",
+            "https://github.com/a/b"
+        ));
+        assert!(!risky_config_key("user.name", "x"));
+    }
+
+    #[cfg(unix)]
+    fn script(path: &Path, marker: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, format!("#!/bin/sh\ntouch {}\n", marker.display())).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_repos_own_fsmonitor_never_runs() {
+        let repo = tempfile::tempdir().unwrap();
+        let out = tempfile::tempdir().unwrap();
+        g(repo.path(), &["init", "-q"]);
+        std::fs::write(repo.path().join("a.typ"), "x").unwrap();
+        let marker = out.path().join("ran");
+        let hook = out.path().join("fsm.sh");
+        script(&hook, &marker);
+        g(
+            repo.path(),
+            &["config", "core.fsmonitor", hook.to_str().unwrap()],
+        );
+        let _ = changed_files(repo.path());
+        assert!(!marker.exists(), "core.fsmonitor ran");
+        assert_eq!(
+            risky_repo_setting(repo.path()).as_deref(),
+            Some("core.fsmonitor")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_repos_own_hooks_never_run_and_a_risky_repo_is_not_synced() {
+        let repo = tempfile::tempdir().unwrap();
+        let out = tempfile::tempdir().unwrap();
+        g(repo.path(), &["init", "-q"]);
+        identify(repo.path());
+        std::fs::write(repo.path().join("a.typ"), "x").unwrap();
+        let marker = out.path().join("hook-ran");
+        script(&repo.path().join(".git/hooks/pre-commit"), &marker);
+        let r = sync(repo.path(), None);
+        assert!(r.committed, "{:?}", r.error);
+        assert!(!marker.exists(), "pre-commit hook ran");
+
+        g(repo.path(), &["config", "core.sshCommand", "true"]);
+        std::fs::write(repo.path().join("b.typ"), "y").unwrap();
+        let r = sync(repo.path(), None);
+        assert!(!r.committed && r.error.is_some());
+    }
+
+    #[test]
+    fn only_the_work_folder_and_agreed_folders_may_back_up_on_their_own() {
+        let work = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        g(work.path(), &["init", "-q"]);
+        g(other.path(), &["init", "-q"]);
+        assert!(repo_allowed(work.path(), work.path(), &[]));
+        assert!(!repo_allowed(other.path(), work.path(), &[]));
+        assert!(repo_allowed(
+            other.path(),
+            work.path(),
+            &[other.path().to_path_buf()]
+        ));
     }
 }

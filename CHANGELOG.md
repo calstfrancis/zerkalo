@@ -3,6 +3,22 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.63.2] "Sealed Glass" — 2026-11-21 — A security and stability pass
+
+### Security
+
+- **A document can no longer read files outside its project.** An absolute path or a symlink in a document no longer reaches other files on your computer. An external bibliography still works, as that one file, if it ends in `.bib`, `.bibtex`, `.yml` or `.yaml`.
+- **Zerkalo no longer runs a repository's own scripts.** Backups turn off git hooks and `core.fsmonitor`, and refuse a repository whose own git settings would run a program, with a message naming the setting.
+- **Backup is opt-in outside your work folder.** Your work folder backs up as before. For any other git folder, Sync asks "Back up … with Zerkalo?" once and remembers your answer.
+- **Imported Word and OpenDocument files are safer.** Links, images and text containing `//`, `~` or a leading `- ` no longer break or inject Typst markup; each part is capped at 64 MB, with at most 500 images and 256 MB of images; and image names can no longer escape or overwrite each other. Pandoc imports can no longer mistake a file name for an option.
+- Remote addresses with embedded credentials are hidden when shown, and the log is rotated once it passes 5 MB.
+
+### Fixed
+
+- **The window no longer freezes on a slow keyring or git.** Keyring and git status checks now run in the background at startup, on the 30-second timer, on closing the window, in settings, in the setup wizard and during GitHub sign-in.
+- **Saving through a symlinked document updates the real file** instead of replacing the link.
+- **`--new-document` titles are escaped** so a title with special characters can't break the new file.
+
 ## [0.63.1] "Warm Ember" — 2026-11-21 — A spelling mark you can see in the dark
 
 ### Changed

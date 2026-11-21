@@ -61,15 +61,91 @@ pub(super) fn set_sync_badge(badge: &Label, state: SyncBadge) {
 /// auto-backup poll, and immediately after every save (`editor_extras.rs`'s
 /// `on_file_dirty` hook) — that last one is what makes the badge light up
 /// the moment you save, rather than up to 30s later.
-pub(super) fn refresh_badge(root: &std::path::Path, badge: &Label) {
-    let dirty = git_sync::has_remote(root) && !git_sync::changed_files(root).is_empty();
-    if dirty {
+/// Whether Zerkalo may back this folder up without being asked: the work
+/// folder's own repository, or one the person agreed to earlier. Any other
+/// git folder a file happens to sit in is left alone.
+pub(super) fn auto_sync_allowed(root: &std::path::Path) -> bool {
+    let cfg = crate::config::shared();
+    let cfg = cfg.borrow();
+    git_sync::repo_allowed(root, &cfg.work_dir, &cfg.sync_repos)
+}
+
+/// Remembers that this folder may be backed up on its own from now on.
+pub(super) fn allow_auto_sync(root: &std::path::Path) {
+    let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let _ = crate::config::update(|c| {
+        if !c.sync_repos.contains(&root) {
+            c.sync_repos.push(root);
+        }
+    });
+}
+
+/// What a look at the folder found, gathered off the main thread: `git`
+/// can take a while on a big folder or a slow disk, and the keyring can hang.
+pub(super) struct Probe {
+    pub root: PathBuf,
+    /// Something is waiting to be backed up, and Zerkalo may back it up.
+    pub pending: bool,
+    pub token: Option<String>,
+}
+
+static PROBING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Finds the git folder for `dir` (or `fallback`), whether it is waiting to
+/// be backed up, and — only if `want_token` and something is — the GitHub
+/// token. `None` if a previous look is still running.
+pub(super) async fn probe(
+    dir: Option<PathBuf>,
+    fallback: PathBuf,
+    want_token: bool,
+) -> Option<Probe> {
+    use std::sync::atomic::Ordering;
+    if PROBING.swap(true, Ordering::SeqCst) {
+        return None;
+    }
+    let (work_dir, listed) = {
+        let cfg = crate::config::shared();
+        let cfg = cfg.borrow();
+        (cfg.work_dir.clone(), cfg.sync_repos.clone())
+    };
+    let found = gtk4::gio::spawn_blocking(move || {
+        let root = dir
+            .and_then(|d| git_sync::git_repo_root(&d))
+            .unwrap_or(fallback);
+        let pending = git_sync::repo_allowed(&root, &work_dir, &listed)
+            && git_sync::has_remote(&root)
+            && !git_sync::changed_files(&root).is_empty();
+        let token = (want_token && pending)
+            .then(crate::secret_store::load_github_token)
+            .flatten();
+        Probe {
+            root,
+            pending,
+            token,
+        }
+    })
+    .await;
+    PROBING.store(false, Ordering::SeqCst);
+    found.ok()
+}
+
+pub(super) fn apply_badge(badge: &Label, pending: bool) {
+    if pending {
         if !badge.has_css_class("error") {
             set_sync_badge(badge, SyncBadge::Pending);
         }
     } else {
         set_sync_badge(badge, SyncBadge::Clear);
     }
+}
+
+pub(super) fn refresh_badge(root: &std::path::Path, badge: &Label) {
+    let (root, badge) = (root.to_path_buf(), badge.clone());
+    glib::spawn_future_local(async move {
+        if let Some(p) = probe(None, root, false).await {
+            apply_badge(&badge, p.pending);
+        }
+    });
 }
 
 pub(super) fn do_sync(
@@ -286,14 +362,16 @@ pub(super) fn confirm_force_pull(
     dlg.connect_response(None, move |dlg, response| {
         dlg.close();
         if response == "replace" {
-            do_force_pull(
+            let (root, w, o, b, cfg) = (
                 root.clone(),
                 w.clone(),
                 o.clone(),
                 b.clone(),
-                crate::secret_store::load_github_token(),
                 current_config.clone(),
             );
+            crate::secret_store::with_token(move |token| {
+                do_force_pull(root, w, o, b, token, cfg);
+            });
         }
     });
     dlg.present();
@@ -369,31 +447,29 @@ fn do_force_pull(
 /// of its own waiting to be backed up) it catches up straight away; otherwise it
 /// offers. Silent when offline, signed out, or already up to date.
 pub(super) fn offer_waiting_work(
-    root: PathBuf,
+    project_root: PathBuf,
     window: adw::ApplicationWindow,
     overlay: adw::ToastOverlay,
     badge: Label,
-    token: Option<String>,
     current_config: Rc<RefCell<Config>>,
 ) {
     use std::sync::mpsc::TryRecvError;
 
-    if !git_sync::has_remote(&root) {
-        return;
-    }
-    let root_for_thread = root.clone();
-    let token_for_thread = token.clone();
-    let (tx, rx) = std::sync::mpsc::sync_channel::<Option<git_sync::Waiting>>(1);
+    type Found = (PathBuf, Option<String>, Option<git_sync::Waiting>);
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Option<Found>>(1);
     std::thread::spawn(move || {
-        tx.send(git_sync::waiting_online(
-            &root_for_thread,
-            token_for_thread.as_deref(),
-        ))
-        .ok();
+        let root = git_sync::git_repo_root(&project_root).unwrap_or(project_root);
+        if !git_sync::has_remote(&root) {
+            tx.send(None).ok();
+            return;
+        }
+        let token = crate::secret_store::load_github_token();
+        let waiting = git_sync::waiting_online(&root, token.as_deref());
+        tx.send(Some((root, token, waiting))).ok();
     });
     let rx = Rc::new(rx);
     glib::timeout_add_local(Duration::from_millis(300), move || match rx.try_recv() {
-        Ok(Some(waiting)) if waiting.changes > 0 => {
+        Ok(Some((root, token, Some(waiting)))) if waiting.changes > 0 => {
             // A folder that is simply behind, with nothing of its own waiting to
             // be backed up, is brought up to date on the spot: there is nothing
             // that could disagree. Anything else is offered, never forced.
@@ -748,7 +824,7 @@ fn show_github_token_dialog(
             return;
         }
 
-        let _ = crate::secret_store::save_github_token(&tok);
+        crate::secret_store::save_in_background(tok.clone());
 
         btn.set_sensitive(false);
         dialog_save.close();

@@ -130,6 +130,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 |---|---|
 | **Setup Wizard** | Three screens: sign in with GitHub, confirm a repository name, done. The git identity comes from the account (never typed), the repository is created and linked, and the first version is pushed, all behind one button. A folder or drive works instead of an account; git is bundled, so nothing needs installing |
 | **Save & back up** | `Ctrl+Shift+S` — commits and pushes to all configured remotes in one click |
+| **Backup stays in your work folder** | Automatic backup only touches your work folder's repository. Any other git folder asks "Back up … with Zerkalo?" once, then is remembered. Repositories whose own git settings would run a program (hooks, `core.fsmonitor`, ssh commands, filters) are refused |
 | **Automatic backups** | Once a backup location is set up, Zerkalo saves and sends a version on its own while you write, and once more on the way out if anything's still unsent — quiet by design |
 | **Plain language throughout** | Setup, sync, and history surfaces describe git in terms of what it does ("save a version," "online copy," "backup location"), not git's own vocabulary |
 

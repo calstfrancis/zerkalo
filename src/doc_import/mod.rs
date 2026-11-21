@@ -23,6 +23,52 @@ pub struct Media {
     pub bytes: Vec<u8>,
 }
 
+/// The most one part of a Word/OpenDocument archive may inflate to. A few
+/// kilobytes of zip can claim gigabytes, so nothing is read without a cap.
+const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_MEDIA_FILES: usize = 500;
+const MAX_MEDIA_TOTAL: usize = 256 * 1024 * 1024;
+
+/// Reads at most `MAX_ENTRY_BYTES` from `r`; `None` if there is more.
+pub(crate) fn read_capped(r: impl std::io::Read) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    r.take(MAX_ENTRY_BYTES + 1).read_to_end(&mut buf).ok()?;
+    (buf.len() as u64 <= MAX_ENTRY_BYTES).then_some(buf)
+}
+
+/// Adds an image and returns the name it was stored under: the file name only
+/// (never a path), and never one already used — two images both called
+/// `image1.png` would otherwise overwrite each other. `None` once the import
+/// has more images than it will take.
+pub(crate) fn add_media(media: &mut Vec<Media>, raw_name: &str, bytes: Vec<u8>) -> Option<String> {
+    let total: usize = media.iter().map(|m| m.bytes.len()).sum();
+    if media.len() >= MAX_MEDIA_FILES || total + bytes.len() > MAX_MEDIA_TOTAL {
+        return None;
+    }
+    let base = raw_name.rsplit(['/', '\\']).next().unwrap_or("");
+    let base = if base.is_empty() || base.chars().all(|c| c == '.') {
+        "image"
+    } else {
+        base
+    };
+    let (stem, ext) = match base.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
+        _ => (base, String::new()),
+    };
+    let mut name = base.to_string();
+    let mut n = 2;
+    while media.iter().any(|m| m.name == name) {
+        name = format!("{stem}-{n}{ext}");
+        n += 1;
+    }
+    media.push(Media {
+        name: name.clone(),
+        bytes,
+    });
+    Some(name)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Inline {
     Text(String),
@@ -173,13 +219,26 @@ fn flatten_inline_plain(inlines: &[Inline], out: &mut String) {
 /// `pub(crate)`: the import flow also needs it to find a tracked change's
 /// plain text inside the escaped Typst output it produced.
 pub(crate) fn escape_text(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
+    for (i, &c) in chars.iter().enumerate() {
+        let next = chars.get(i + 1).copied();
+        let at_start = i == 0;
         match c {
             '\\' => out.push_str("\\\\"),
-            '#' | '$' | '*' | '_' | '`' | '<' | '>' | '@' | '=' | '[' | ']' => {
+            '#' | '$' | '*' | '_' | '`' | '<' | '>' | '@' | '=' | '[' | ']' | '~' => {
                 out.push('\\');
                 out.push(c);
+            }
+            // `//` starts a comment that would swallow the rest of the line; a
+            // leading `/ ` or `- ` / `+ ` / `1. ` starts a term or list item.
+            '/' if next == Some('/') || (at_start && next == Some(' ')) => out.push_str("\\/"),
+            '-' | '+' if at_start && next == Some(' ') => {
+                out.push('\\');
+                out.push(c);
+            }
+            '.' if next == Some(' ') && i > 0 && chars[..i].iter().all(char::is_ascii_digit) => {
+                out.push_str("\\.")
             }
             _ => out.push(c),
         }
@@ -215,7 +274,10 @@ fn emit_inlines(items: &[Inline], out: &mut String) {
                 out.push_str(&ticks);
             }
             Inline::Link { href, body } => {
-                out.push_str(&format!("#link(\"{}\")[", href.replace('"', "%22")));
+                out.push_str(&format!(
+                    "#link(\"{}\")[",
+                    crate::typst_text::string_body(href)
+                ));
                 emit_inlines(body, out);
                 out.push(']');
             }
@@ -315,7 +377,7 @@ fn emit_blocks(blocks: &[Block], out: &mut String, depth: usize) {
             Block::Image { src, alt } => {
                 out.push_str(&format!(
                     "#figure(\n  image(\"{}\"),\n  caption: [{}],\n)\n\n",
-                    src.replace('"', "%22"),
+                    crate::typst_text::string_body(src),
                     escape_text(alt),
                 ));
             }
@@ -596,5 +658,93 @@ Backslash \ and underscore _mid_word_ and asterisk 2*3=6."#;
                 "{pandoc} should fall back to pandoc"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod escape_tests {
+    use super::escape_text;
+
+    fn is_plain_text(escaped: &str) -> bool {
+        let root = typst::syntax::parse(escaped);
+        root.errors_and_warnings().0.is_empty()
+            && !root.children().any(|c| {
+                !matches!(
+                    c.kind(),
+                    typst::syntax::SyntaxKind::Text
+                        | typst::syntax::SyntaxKind::Space
+                        | typst::syntax::SyntaxKind::Escape
+                        | typst::syntax::SyntaxKind::SmartQuote
+                        | typst::syntax::SyntaxKind::Shorthand
+                )
+            })
+    }
+
+    #[test]
+    fn imported_text_never_turns_into_markup_or_a_comment() {
+        for text in [
+            "keep // this too",
+            "see https://example.org/a//b",
+            "/ term",
+            "- item",
+            "+ item",
+            "1. item",
+            "about ~5 units",
+            "price $5 #1",
+        ] {
+            assert!(
+                is_plain_text(&escape_text(text)),
+                "{text:?} -> {:?}",
+                escape_text(text)
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_slashes_and_numbers_are_left_alone() {
+        assert_eq!(escape_text("and/or 3.5 x-ray"), "and/or 3.5 x-ray");
+    }
+}
+
+#[cfg(test)]
+mod media_tests {
+    use super::*;
+
+    #[test]
+    fn images_with_the_same_name_keep_both() {
+        let mut m = Vec::new();
+        assert_eq!(
+            add_media(&mut m, "word/media/image1.png", vec![1]).unwrap(),
+            "image1.png"
+        );
+        assert_eq!(
+            add_media(&mut m, "other/image1.png", vec![2]).unwrap(),
+            "image1-2.png"
+        );
+        assert_eq!(m.len(), 2);
+    }
+
+    #[test]
+    fn a_media_name_is_only_ever_a_file_name() {
+        let mut m = Vec::new();
+        assert_eq!(
+            add_media(&mut m, "../../etc/passwd", vec![]).unwrap(),
+            "passwd"
+        );
+        assert_eq!(add_media(&mut m, "..", vec![]).unwrap(), "image");
+        assert_eq!(add_media(&mut m, "a\\b.png", vec![]).unwrap(), "b.png");
+    }
+
+    #[test]
+    fn an_oversized_entry_is_refused() {
+        struct Endless;
+        impl std::io::Read for Endless {
+            fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+                b.fill(0);
+                Ok(b.len())
+            }
+        }
+        assert!(read_capped(Endless).is_none());
+        assert_eq!(read_capped(&b"abc"[..]).unwrap(), b"abc");
     }
 }

@@ -7,7 +7,6 @@
 //! definitions rather than read off the run.
 
 use std::collections::HashMap;
-use std::io::Read;
 use std::path::Path;
 
 use super::{Block, Imported, Inline, Media};
@@ -156,11 +155,13 @@ pub fn read(path: &Path) -> Result<Imported, String> {
             .to_string()
     })?;
 
-    let mut buf = Vec::new();
-    zip.by_name("content.xml")
-        .map_err(|_| "This .odt has no document body (content.xml is missing).".to_string())?
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("Couldn't read the document body: {e}"))?;
+    let buf = zip
+        .by_name("content.xml")
+        .map_err(|_| "This .odt has no document body (content.xml is missing).".to_string())
+        .and_then(|f| {
+            super::read_capped(f)
+                .ok_or_else(|| "The document body is too large to import safely.".to_string())
+        })?;
     let text =
         String::from_utf8(buf).map_err(|_| "The document's text isn't valid UTF-8.".to_string())?;
     let doc = roxmltree::Document::parse(&text)
@@ -216,22 +217,17 @@ fn walk_body(
                     .find(|n| n.tag_name().name() == "image")
                     .and_then(|i| i.attribute((XLINK, "href")))
                 {
-                    let name = href.rsplit('/').next().unwrap_or("image").to_string();
-                    let mut buf = Vec::new();
-                    if zip
+                    if let Some(buf) = zip
                         .by_name(href.trim_start_matches("./"))
                         .ok()
-                        .and_then(|mut f| f.read_to_end(&mut buf).ok())
-                        .is_some()
+                        .and_then(super::read_capped)
                     {
-                        media.push(Media {
-                            name: name.clone(),
-                            bytes: buf,
-                        });
-                        blocks.push(Block::Image {
-                            src: name,
-                            alt: String::new(),
-                        });
+                        if let Some(name) = super::add_media(media, href, buf) {
+                            blocks.push(Block::Image {
+                                src: name,
+                                alt: String::new(),
+                            });
+                        }
                     }
                 }
                 let body = inlines_of(node, styles);

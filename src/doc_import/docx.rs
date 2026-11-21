@@ -6,7 +6,6 @@
 //! `<w:numPr>` numbering reference.
 
 use std::collections::HashMap;
-use std::io::Read;
 use std::path::Path;
 
 use crate::comments::SuggestionKind;
@@ -15,10 +14,7 @@ use super::{Block, Imported, Inline, Media};
 
 /// Reads one entry out of a ZIP as bytes.
 fn read_entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Option<Vec<u8>> {
-    let mut file = zip.by_name(name).ok()?;
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf).ok()?;
-    Some(buf)
+    super::read_capped(zip.by_name(name).ok()?)
 }
 
 /// Maps a Word style id to a heading level, e.g. `Heading2` / `heading 2` → 2.
@@ -238,17 +234,14 @@ pub fn read(path: &Path) -> Result<Imported, String> {
                 }
 
                 if let Some(target) = image_rel {
-                    let name = target.rsplit('/').next().unwrap_or("image").to_string();
                     let entry_name = format!("word/{}", target.trim_start_matches("../"));
                     if let Some(data) = read_entry(&mut zip, &entry_name) {
-                        media.push(Media {
-                            name: name.clone(),
-                            bytes: data,
-                        });
-                        blocks.push(Block::Image {
-                            src: name,
-                            alt: String::new(),
-                        });
+                        if let Some(name) = super::add_media(&mut media, target, data) {
+                            blocks.push(Block::Image {
+                                src: name,
+                                alt: String::new(),
+                            });
+                        }
                     }
                     if inlines.is_empty() {
                         continue;

@@ -618,12 +618,8 @@ impl SettingsDialog {
 
         let account_row = adw::ActionRow::new();
         account_row.set_title(&tr("settings-account-title"));
-        let has_token = crate::secret_store::load_github_token().is_some();
-        account_row.set_subtitle(&tr(if has_token {
-            "settings-connected"
-        } else {
-            "settings-not-connected"
-        }));
+        let has_token = false;
+        account_row.set_subtitle(&tr("settings-not-connected"));
 
         let account_btn_box = GtkBox::new(Orientation::Horizontal, 6);
         account_btn_box.set_valign(Align::Center);
@@ -656,13 +652,30 @@ impl SettingsDialog {
             let row_c = account_row.clone();
             let signin_c = signin_btn.clone();
             disconnect_btn.connect_clicked(move |btn| {
-                crate::secret_store::delete_github_token();
+                crate::secret_store::delete_in_background();
                 row_c.set_subtitle(&tr("settings-not-connected"));
                 signin_c.set_label(&tr("settings-signin-github-button"));
                 btn.set_visible(false);
             });
         }
         account_btn_box.append(&disconnect_btn);
+
+        // Asked of the keyring off the main thread; the row says "not connected"
+        // until the answer lands, then corrects itself.
+        {
+            let (row_c, signin_c, disc_c) = (
+                account_row.clone(),
+                signin_btn.clone(),
+                disconnect_btn.clone(),
+            );
+            crate::secret_store::with_token(move |token| {
+                if token.is_some() {
+                    row_c.set_subtitle(&tr("settings-connected"));
+                    signin_c.set_label(&tr("settings-reconnect-button"));
+                    disc_c.set_visible(true);
+                }
+            });
+        }
 
         account_row.add_suffix(&account_btn_box);
         sync_group.add(&account_row);
@@ -1019,6 +1032,7 @@ impl SettingsDialog {
             let batch_concurrency_row = batch_concurrency_row.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
+            let sync_repos_cur = current.sync_repos.clone();
             let recent_searches_cur = current.recent_searches.clone();
             let preview_zoom_cur = current.preview_zoom;
             let sidebar_width_cur = current.sidebar_width;
@@ -1150,6 +1164,7 @@ impl SettingsDialog {
                     output_dir,
                     recent_files: recent_files_cur.clone(),
                     recent_projects: recent_projects_cur.clone(),
+                    sync_repos: sync_repos_cur.clone(),
                     bib_path,
                     mirror_bibliography: mirror_cur,
                     tell_kartoteka: tell_kartoteka_cur,

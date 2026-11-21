@@ -961,14 +961,11 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                 wizard.present();
                 return;
             }
-            do_pull(
-                root,
-                window.clone(),
-                toasts.clone(),
-                badge.clone(),
-                crate::secret_store::load_github_token(),
-                cfg.clone(),
-            );
+            let (window, toasts, badge, cfg) =
+                (window.clone(), toasts.clone(), badge.clone(), cfg.clone());
+            crate::secret_store::with_token(move |token| {
+                do_pull(root, window, toasts, badge, token, cfg);
+            });
         });
     }
     // Replace this computer's copy with GitHub's (kept-copy first, after asking).
@@ -1006,11 +1003,10 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     }
     // On start-up, offer newer writing that's waiting online.
     offer_waiting_work(
-        git_sync::git_repo_root(&ctx.project_root).unwrap_or_else(|| ctx.project_root.clone()),
+        ctx.project_root.clone(),
         ctx.window.clone(),
         ctx.toast_overlay.clone(),
         ctx.sync_badge.clone(),
-        crate::secret_store::load_github_token(),
         ctx.current_config.clone(),
     );
 
@@ -1040,7 +1036,6 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         let btn = sync_btn_ref.clone();
         let badge = sync_badge_ref.clone();
         let toasts = toast_for_sync_closure.clone();
-        let token = crate::secret_store::load_github_token();
         let cfg_rc = config_for_sync.clone();
 
         if !git_sync::has_remote(&root) {
@@ -1061,7 +1056,52 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             return;
         }
 
-        do_sync(root, win, toasts, btn, badge, token, cfg_rc);
+        if !super::sync::auto_sync_allowed(&root) {
+            // A git folder that isn't the work folder: say what backing it up
+            // means before Zerkalo starts committing and pushing it.
+            let name = root
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| root.display().to_string());
+            let dlg = adw::MessageDialog::new(
+                Some(&win),
+                Some(&format!("Back up \u{201c}{name}\u{201d} with Zerkalo?")),
+                Some(
+                    "This folder is a git project of its own. Backing it up saves every file in \
+                     it as a version and sends it to its online copies, now and again \
+                     automatically while you write.",
+                ),
+            );
+            dlg.add_response("cancel", "Not now");
+            dlg.add_response("backup", "Back it up");
+            dlg.set_default_response(Some("cancel"));
+            dlg.set_close_response("cancel");
+            dlg.connect_response(None, move |dlg, response| {
+                dlg.close();
+                if response == "backup" {
+                    super::sync::allow_auto_sync(&root);
+                    let (root, win, toasts, btn, badge, cfg_rc) = (
+                        root.clone(),
+                        win.clone(),
+                        toasts.clone(),
+                        btn.clone(),
+                        badge.clone(),
+                        cfg_rc.clone(),
+                    );
+                    crate::secret_store::with_token(move |token| {
+                        do_sync(root, win, toasts, btn, badge, token, cfg_rc);
+                    });
+                } else {
+                    btn.set_sensitive(true);
+                }
+            });
+            dlg.present();
+            return;
+        }
+
+        crate::secret_store::with_token(move |token| {
+            do_sync(root, win, toasts, btn, badge, token, cfg_rc);
+        });
     });
 }
 

@@ -189,8 +189,10 @@ fn update_bibliography(content: &str, bib_style: &str, bib_title: &str) -> Strin
 }
 
 fn build_bib_call(filename: &str, style: &str, title: &str) -> String {
-    let style = style.replace('\\', "\\\\").replace('"', "\\\"");
+    let style = crate::typst_text::string_body(style);
     let style = style.as_str();
+    let filename = crate::typst_text::string_body(filename);
+    let title = crate::typst_text::string_body(title);
     if title.is_empty() {
         format!("#bibliography(\"{filename}\", style: \"{style}\")")
     } else {

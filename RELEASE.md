@@ -1,9 +1,15 @@
-<!-- zerkalo-release: 0.63.1 -->
+<!-- zerkalo-release: 0.63.2 -->
 ### What's new
 
-A spelling mark you can actually see in dark mode.
+A security and stability pass.
 
-**Amber on dark pages.** A misspelled word now gets a warm amber wavy line with a faint amber wash behind it, in place of the blue line that all but disappeared against a dark page. It is easy to spot without being an alarm. Light pages keep the blue line, and the mark follows the theme when you switch.
+**Documents stay inside their project.** A document can no longer reach other files on your computer through an absolute path or a symlink. An external bibliography still works, as that one file, if it is a `.bib`, `.bibtex`, `.yml` or `.yaml`.
+
+**Backup is careful about what it runs and where.** Zerkalo no longer runs a repository's own hooks or programs, and says which setting it refused. Your work folder backs up as before; any other git folder asks "Back up … with Zerkalo?" once on first Sync.
+
+**Safer imports.** Word and OpenDocument files with unusual links, images or text no longer break the document, and oversized archives are capped.
+
+**No more freezes.** Keyring and git checks now run in the background, so a slow one can't lock the window at startup, on the timer, or on close.
 
 ---
 
