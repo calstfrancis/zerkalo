@@ -128,6 +128,7 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
             BodyKind::Letter => "letter".into(),
             BodyKind::Academic => "academic".into(),
             BodyKind::Poetry => "poetry".into(),
+            BodyKind::Verbatim => "verbatim".into(),
         },
         // Written only for CV documents, and read back via `cv_style_index`
         // instead of the `style`/CITATION_STYLES aliasing above — see

@@ -72,6 +72,9 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     if matches!(s.body_kind, BodyKind::Poetry) {
         let _ = writeln!(out, "// @zerkalo-kind: poetry");
     }
+    if matches!(s.body_kind, BodyKind::Verbatim) {
+        let _ = writeln!(out, "// @zerkalo-kind: verbatim");
+    }
     let _ = writeln!(out);
 
     if matches!(s.body_kind, BodyKind::Poetry) {
@@ -163,7 +166,7 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         // line gap, which keeps every line on one grid as APA, MLA and Chicago ask.
         let _ = writeln!(out, "{}", crate::style_spec::par_rule(style_key, &leading));
     }
-    if matches!(s.body_kind, BodyKind::Poetry) {
+    if matches!(s.body_kind, BodyKind::Poetry | BodyKind::Verbatim) {
         let _ = writeln!(out, "#set par(first-line-indent: 0pt, justify: false)");
     }
     let _ = writeln!(out);
@@ -204,6 +207,10 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         let _ = writeln!(out);
     }
 
+    if matches!(s.body_kind, BodyKind::Verbatim) {
+        let _ = writeln!(out, "{VERBATIM_HELPERS}");
+    }
+
     let _ = writeln!(out, "{TEMPLATE_END}");
     let _ = writeln!(out);
 
@@ -211,7 +218,7 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     // page, unaffected by the title-page toggle (it's a different section).
     let title_block = if matches!(s.body_kind, BodyKind::Letter) {
         generate_letter_header(s)
-    } else if s.include_title_page {
+    } else if s.include_title_page && !matches!(s.body_kind, BodyKind::Verbatim) {
         generate_title_page(style_key, s)
     } else {
         // A running header still needs to work with the title page off — see
@@ -379,11 +386,33 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
             let _ = writeln!(out);
             let _ = write!(out, "{POETRY_STARTER_BODY}");
         }
+        BodyKind::Verbatim => {
+            let _ = writeln!(out, "// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.");
+            let _ = writeln!(
+                out,
+                "// ── Document body ───────────────────────────────────────────────────"
+            );
+            let _ = writeln!(out);
+            let title = if s.title.trim().is_empty() {
+                "Verbatim"
+            } else {
+                s.title.trim()
+            };
+            let body = VERBATIM_BODY
+                .replace("@@TITLE@@", &field_str(title))
+                .replace("@@UNIT@@", &field_str(&s.affiliation))
+                .replace("@@AUTHOR@@", &field_str(&s.author))
+                .replace("@@DATE@@", &field_str(&default_doc_date(s)));
+            let _ = write!(out, "{body}");
+        }
         BodyKind::Cv => { /* dispatched to generate_cv_template() above */ }
     }
 
     out
 }
+
+pub(crate) const VERBATIM_HELPERS: &str = include_str!("../../../templates/verbatim-helpers.typ");
+const VERBATIM_BODY: &str = include_str!("../../../templates/verbatim-body.typ");
 
 pub(crate) const VERSEATILE_IMPORT: &str = "#import \"@preview/verseatile:0.2.2\": *";
 

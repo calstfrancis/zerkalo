@@ -461,6 +461,21 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         body_kind: BodyKind::Poetry,
         poetry_preset: "elegant",
     },
+    TemplatePreset {
+        name: "Clinical Verbatim",
+        description: "A pastoral or clinical conversation set as a numbered script, any number of speakers, with Felt and Note columns and reflection sections · US Letter · normal margins · page numbers bottom center",
+        style_idx: 1,
+        paper_idx: 0,
+        margin_idx: 0,
+        spacing_idx: 1,
+        page_num_pos: 0,
+        header_idx: 0,
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Verbatim,
+        poetry_preset: "",
+    },
 ];
 
 // ── Body kind ─────────────────────────────────────────────────────────────────
@@ -473,6 +488,7 @@ pub(crate) enum BodyKind {
     Cv,
     Letter,
     Poetry,
+    Verbatim,
 }
 
 /// Maps the "book"/"cv"/"letter"/"poetry" wire vocabulary shared by [`SidecarSettings::body_kind`]
@@ -483,6 +499,7 @@ pub(crate) fn body_kind_from_key(key: &str) -> BodyKind {
         "cv" => BodyKind::Cv,
         "letter" => BodyKind::Letter,
         "poetry" => BodyKind::Poetry,
+        "verbatim" => BodyKind::Verbatim,
         _ => BodyKind::Academic,
     }
 }
@@ -1005,7 +1022,7 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
 
     let title_page_row = adw::SwitchRow::new();
     title_page_row.set_title("Title page");
-    title_page_row.set_subtitle("Letters use a letterhead instead, regardless of this toggle");
+    title_page_row.set_subtitle("Letters use a letterhead and verbatims their own heading instead, regardless of this toggle");
     title_page_row.set_active(true);
     sec_group.add(&title_page_row);
 
@@ -3537,7 +3554,7 @@ fn render_template_preview(
     // For CVs and letters the template already contains full content — no body to append.
     if matches!(
         body_kind,
-        BodyKind::Cv | BodyKind::Letter | BodyKind::Poetry
+        BodyKind::Cv | BodyKind::Letter | BodyKind::Poetry | BodyKind::Verbatim
     ) {
         let tmp_dir = std::env::temp_dir();
         let typ_path = tmp_dir.join(format!("zerkalo_tmpl_preview_{tag}.typ"));
@@ -3572,16 +3589,20 @@ fn render_template_preview(
     // Replace the starter body with richer sample content
     let body = match body_kind {
         BodyKind::Book => PREVIEW_BOOK_BODY,
-        BodyKind::Academic | BodyKind::Cv | BodyKind::Letter | BodyKind::Poetry => {
-            PREVIEW_ACADEMIC_BODY
-        }
+        BodyKind::Academic
+        | BodyKind::Cv
+        | BodyKind::Letter
+        | BodyKind::Poetry
+        | BodyKind::Verbatim => PREVIEW_ACADEMIC_BODY,
     };
     // Strip everything from the first chapter/section marker onward and append rich body
     let marker = match body_kind {
         BodyKind::Book => "// ── Chapters",
-        BodyKind::Academic | BodyKind::Cv | BodyKind::Letter | BodyKind::Poetry => {
-            "// ── Document body"
-        }
+        BodyKind::Academic
+        | BodyKind::Cv
+        | BodyKind::Letter
+        | BodyKind::Poetry
+        | BodyKind::Verbatim => "// ── Document body",
     };
     if let Some(pos) = preamble.find(marker) {
         preamble.truncate(pos);
@@ -4167,6 +4188,7 @@ mod tests {
                 BodyKind::Book,
                 BodyKind::Letter,
                 BodyKind::Poetry,
+                BodyKind::Verbatim,
             ] {
                 let mut s = matrix_base();
                 s.style_idx = idx;
@@ -4196,6 +4218,51 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn verbatim_compiles_with_many_speakers_and_both_layouts() {
+        let mut s = matrix_base();
+        s.body_kind = BodyKind::Verbatim;
+        s.title = "Verbatim 4: \"the hallway\"".into();
+        s.affiliation = "CPE Unit 1".into();
+        let out = generate_typst_template(&s);
+        assert!(out.contains("#let P = say.with(\"P\")"));
+        assert_eq!(parse_doc_kind(&out).as_deref(), Some("verbatim"));
+        assert!(compile_failure(&s).is_none(), "{:?}", compile_failure(&s));
+
+        let extra = format!(
+            "{out}\n#let Dtr = say.with(\"Dtr\")\n#let Chap = say.with(\"Chap\")\n#Dtr[One]\n#Chap([Two], feel: [a], note: [b])\n#say(\"Pastor\", [Three])\n"
+        );
+        for variant in [
+            extra.clone(),
+            extra.replace(
+                "#let P = say",
+                "#verbatim-columns.update(false)\n#let P = say",
+            ),
+        ] {
+            let path =
+                std::env::temp_dir().join(format!("zerkalo_verbatim_{}.typ", std::process::id()));
+            std::fs::write(&path, &variant).unwrap();
+            let r = crate::compiler::compile_to_pdf_bytes(
+                &path,
+                &std::collections::HashMap::new(),
+                &std::collections::HashMap::new(),
+                None,
+            );
+            let _ = std::fs::remove_file(&path);
+            assert!(r.is_ok(), "{:?}", r.err());
+        }
+    }
+
+    #[test]
+    fn verbatim_settings_round_trip_and_keep_their_own_paragraph_rule() {
+        let mut s = matrix_base();
+        s.body_kind = BodyKind::Verbatim;
+        let back = sidecar_to_settings(&build_sidecar(&s));
+        assert_eq!(back.body_kind, BodyKind::Verbatim);
+        let out = generate_typst_template(&back);
+        assert_eq!(update_par_for_style(&out, "apa"), out);
     }
 
     #[test]

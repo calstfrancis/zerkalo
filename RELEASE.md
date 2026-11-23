@@ -1,15 +1,13 @@
-<!-- zerkalo-release: 0.63.2 -->
+<!-- zerkalo-release: 0.64.0 -->
 ### What's new
 
-A security and stability pass.
+A template for clinical verbatims.
 
-**Documents stay inside their project.** A document can no longer reach other files on your computer through an absolute path or a symlink. An external bibliography still works, as that one file, if it is a `.bib`, `.bibtex`, `.yml` or `.yaml`.
+**Clinical Verbatim in New from template.** For pastoral and clinical practica (CPE, supervised ministry, social work, counselling): a conversation written up as a numbered script, with Context, Reflection and For-the-group sections around it. Lines are numbered continuously so a group can say "look at 23".
 
-**Backup is careful about what it runs and where.** Zerkalo no longer runs a repository's own hooks or programs, and says which setting it refused. Your work folder backs up as before; any other git folder asks "Back up … with Zerkalo?" once on first Sync.
+**Any number of speakers.** Give each person a short label and write their lines with it: the patient, a daughter, a nurse, a second chaplain. Each line can carry a *Felt* note (what you noticed at the time) and a *Note* (analysis you added afterwards), in margin columns or as footnotes. Stage directions, scene breaks and a who-is-who box are built in, and the title block and page header carry a confidentiality line.
 
-**Safer imports.** Word and OpenDocument files with unusual links, images or text no longer break the document, and oversized archives are capped.
-
-**No more freezes.** Keyring and git checks now run in the background, so a slow one can't lock the window at startup, on the timer, or on close.
+**Help explains it.** Help now has a *Verbatim documents* section with the syntax and an example.
 
 ---
 

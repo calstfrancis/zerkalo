@@ -712,7 +712,10 @@ pub(crate) fn update_page_settings_for_style(block: &str, new_style_key: &str) -
 /// with a newly chosen style, keeping the line gap the document already has.
 /// Poetry and the LaTeX look write their own paragraph rule and are left alone.
 pub(crate) fn update_par_for_style(block: &str, new_style_key: &str) -> String {
-    if new_style_key == "latex" || block.contains("// @zerkalo-kind: poetry") {
+    if new_style_key == "latex"
+        || block.contains("// @zerkalo-kind: poetry")
+        || block.contains("// @zerkalo-kind: verbatim")
+    {
         return block.to_string();
     }
     let lang = crate::style_spec::style_spec(new_style_key).lang;

@@ -3,6 +3,13 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.64.0] "Faithful Echo" — 2026-11-23 — A template for clinical verbatims
+
+### Added
+
+- **Clinical Verbatim, in New from template.** A document type for pastoral and clinical practica: a conversation written up as a numbered script, followed by Context, Reflection and For-the-group sections. Any number of speakers: give each a short label (`#let P = say.with("P")`) and write their lines with it. Each line can carry a *Felt* note (what you noticed then) and a *Note* (analysis added afterwards), shown in margin columns or as footnotes. `#stage[...]` sets a pause or nonverbal moment, `#beat[...]` a scene break, and `#speakers(...)` a who-is-who box. The title block and running header carry a confidentiality line.
+- **Help → Verbatim documents** explains the syntax with an example.
+
 ## [0.63.2] "Sealed Glass" — 2026-11-21 — A security and stability pass
 
 ### Security

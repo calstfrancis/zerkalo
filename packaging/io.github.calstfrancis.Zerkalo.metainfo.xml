@@ -88,6 +88,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.64.0" date="2026-11-23">
+      <description>
+        <p>0.64.0 "Faithful Echo" — a template for clinical verbatims. New from template now offers Clinical Verbatim: a pastoral or clinical conversation set as a numbered script with any number of speakers, optional Felt and Note columns on each line, stage directions and scene breaks, and Context, Reflection and group-question sections. Help explains how to write one.</p>
+      </description>
+    </release>
     <release version="0.63.2" date="2026-11-21">
       <description>
         <p>0.63.2 "Sealed Glass" — a security and stability pass. A document can no longer read files outside its project, Zerkalo no longer runs a repository's own scripts, and backup of git folders outside your work folder now asks once first. Imports from Word and OpenDocument are safer, and the window no longer freezes when the keyring or git is slow.</p>
