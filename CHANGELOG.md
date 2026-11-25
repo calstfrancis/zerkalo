@@ -3,6 +3,16 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.65.0] "Steady Pane" — 2026-11-25 — One window, if you like
+
+### Added
+
+- **An "Only one window" setting.** Settings → General → Windows. With it on, opening Zerkalo again — from a keyboard shortcut or the app menu — brings up the window you already have instead of opening another. It is remembered, and off by default so nothing changes unless you turn it on.
+
+### Security
+
+- Updated the `url` library to 2.5.9, which fixes a stack overflow (RUSTSEC-2026-0592) when it handles deeply nested `blob:` addresses.
+
 ## [0.64.0] "Faithful Echo" — 2026-11-23 — A template for clinical verbatims
 
 ### Added

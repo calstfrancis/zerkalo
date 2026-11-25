@@ -237,6 +237,10 @@ pub struct Config {
     pub locked_author: String,
     #[serde(default)]
     pub locked_affiliation: String,
+    /// When on, launching Zerkalo again (a keyboard shortcut, the app menu)
+    /// raises the window that is already open instead of opening another one.
+    #[serde(default)]
+    pub single_window: bool,
     #[serde(default = "default_true")]
     pub simple_mode: bool,
     #[serde(default)]
@@ -574,6 +578,7 @@ impl Default for Config {
             github_token: None,
             locked_author: String::new(),
             locked_affiliation: String::new(),
+            single_window: false,
             simple_mode: true,
             shown_simple_intro: false,
             shown_editor_orientation: false,
@@ -822,6 +827,18 @@ impl ProjectConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_window_defaults_off_and_is_remembered() {
+        let old: Config = toml::from_str("").unwrap();
+        assert!(!old.single_window);
+        let on = Config {
+            single_window: true,
+            ..Config::default()
+        };
+        let back: Config = toml::from_str(&toml::to_string(&on).unwrap()).unwrap();
+        assert!(back.single_window);
+    }
 
     #[test]
     fn config_default_round_trip() {

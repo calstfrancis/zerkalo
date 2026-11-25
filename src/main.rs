@@ -199,6 +199,12 @@ fn main() -> ExitCode {
 
     let sw_activate = shared_window.clone();
     app.connect_activate(move |app| {
+        if crate::config::shared().borrow().single_window {
+            if let Some(existing) = app.windows().into_iter().next() {
+                existing.present();
+                return;
+            }
+        }
         let window = new_window(app);
         window.open_initial_file(initial_file.clone());
         window.present();

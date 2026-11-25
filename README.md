@@ -39,6 +39,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Spell check** | Blue wavy underlines on misspelled prose words (amber with a faint wash on dark pages); right-click for suggestions, Ignore all; `Shift+F7` walks through each flagged word one at a time (change, change all, skip, skip all, add to the dictionary or the project's); language selector in Settings; optional autocorrect on word boundary |
 | **Breadcrumb bar** | Heading path shown above the editor (e.g. "Introduction › Methods") updated as the cursor moves |
 | **Auto-pair brackets** | Typing `(`, `[`, `{`, or `"` inserts the closing character and positions the cursor between them |
+| **Only one window** | Settings → General → Windows → *Only one window* (remembered, off by default): opening Zerkalo again, from a keyboard shortcut or the app menu, raises the window you already have instead of opening another. Files opened from your file manager still go to that window |
 | **Typewriter scrolling** | Optional (Settings → Editor); cursor stays fixed at ~45 % from the top of the viewport |
 | **Line spacing** | Settings → Editor → Compact / Normal / Spacious |
 | **High contrast mode** | Settings → Editor → High contrast; forces white-on-black in the editor |

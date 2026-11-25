@@ -10,6 +10,9 @@ settings-save = Save
 ## Folders
 
 settings-folders-title = Folders
+settings-windows-title = Windows
+settings-single-window-title = Only one window
+settings-single-window-subtitle = Opening Zerkalo again, from a shortcut or the app menu, brings up the window you already have instead of opening another
 settings-work-folder-title = Work folder
 settings-output-folder-title = Output folder
 settings-browse-folder-tooltip = Browse for a folder

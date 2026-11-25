@@ -175,6 +175,14 @@ impl SettingsDialog {
         output_dir_row.add_suffix(&output_dir_btn);
         folders_group.add(&output_dir_row);
 
+        let windows_group = adw::PreferencesGroup::new();
+        windows_group.set_title(&tr("settings-windows-title"));
+        let single_window_row = adw::SwitchRow::new();
+        single_window_row.set_title(&tr("settings-single-window-title"));
+        single_window_row.set_subtitle(&tr("settings-single-window-subtitle"));
+        single_window_row.set_active(current.single_window);
+        windows_group.add(&single_window_row);
+
         // Compilation
         let compile_group = adw::PreferencesGroup::new();
         compile_group.set_title(&tr("settings-compilation-title"));
@@ -738,6 +746,7 @@ impl SettingsDialog {
 
         let page_general = adw::PreferencesPage::new();
         page_general.add(&folders_group);
+        page_general.add(&windows_group);
         page_general.add(&compile_group);
         page_general.add(&sync_group);
         page_general.add(&setup_group);
@@ -1025,6 +1034,7 @@ impl SettingsDialog {
             let spacing_row = spacing_row.clone();
             let typewriter_row = typewriter_row.clone();
             let high_contrast_row = high_contrast_row.clone();
+            let single_window_row = single_window_row.clone();
             let word_count_goal_spin = word_count_goal_spin.clone();
             let page_limit_spin = page_limit_spin.clone();
             let spell_enabled_row = spell_enabled_row.clone();
@@ -1185,6 +1195,7 @@ impl SettingsDialog {
                     editor_line_spacing,
                     typewriter_scrolling: typewriter_row.is_active(),
                     high_contrast: high_contrast_row.is_active(),
+                    single_window: single_window_row.is_active(),
                     gost_font: gost_font_cur,
                     word_count_goal: word_count_goal_spin.value() as u32,
                     page_limit: page_limit_spin.value() as u32,

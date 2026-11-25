@@ -1,13 +1,11 @@
-<!-- zerkalo-release: 0.64.0 -->
+<!-- zerkalo-release: 0.65.0 -->
 ### What's new
 
-A template for clinical verbatims.
+One window, if you like.
 
-**Clinical Verbatim in New from template.** For pastoral and clinical practica (CPE, supervised ministry, social work, counselling): a conversation written up as a numbered script, with Context, Reflection and For-the-group sections around it. Lines are numbered continuously so a group can say "look at 23".
+**Only one window.** If a keyboard shortcut or the app menu keeps opening a new Zerkalo window, turn on Settings → General → Windows → *Only one window*. Opening Zerkalo again then brings up the window you already have. It is remembered, and off by default, so nothing changes unless you choose it.
 
-**Any number of speakers.** Give each person a short label and write their lines with it: the patient, a daughter, a nurse, a second chaplain. Each line can carry a *Felt* note (what you noticed at the time) and a *Note* (analysis you added afterwards), in margin columns or as footnotes. Stage directions, scene breaks and a who-is-who box are built in, and the title block and page header carry a confidentiality line.
-
-**Help explains it.** Help now has a *Verbatim documents* section with the syntax and an example.
+**A library update.** Zerkalo's URL library is updated to fix a security advisory about deeply nested `blob:` addresses.
 
 ---
 
