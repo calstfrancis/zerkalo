@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.66.0] "Plain Proof" — 2026-11-28 — Spelling, one click away
+
+### Added
+
+- **A "spelling" button in the status bar**, right after "search". One click opens the step-through spell check (the same one as Shift+F7), one word at a time.
+
 ## [0.65.0] "Steady Pane" — 2026-11-25 — One window, if you like
 
 ### Added

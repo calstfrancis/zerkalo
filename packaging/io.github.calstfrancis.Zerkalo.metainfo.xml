@@ -88,6 +88,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.66.0" date="2026-11-28">
+      <description>
+        <p>0.66.0 "Plain Proof" — spelling, one click away. A new "spelling" button in the status bar, next to "search", opens the step-through spell check: change, skip or add each flagged word, one at a time.</p>
+      </description>
+    </release>
     <release version="0.65.0" date="2026-11-25">
       <description>
         <p>0.65.0 "Steady Pane" — one window, if you like. A new "Only one window" setting (Settings, General) makes opening Zerkalo again from a shortcut raise the window you already have instead of opening another. It is remembered and off by default. Also updates a library to fix a security advisory.</p>

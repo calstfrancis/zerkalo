@@ -1219,6 +1219,29 @@ impl EditorPane {
             .reorder_child_after(&self.search_btn, Some(w));
     }
 
+    /// A "spelling" button right after "search" that opens the step-through
+    /// spell check (the same walk-through as Shift+F7).
+    pub fn add_spelling_button(&self, parent: &gtk4::Window) {
+        let label = Label::new(Some("spelling"));
+        label.add_css_class("dim-label");
+        label.add_css_class("caption");
+        label.set_margin_top(3);
+        label.set_margin_bottom(3);
+        let btn = Button::new();
+        btn.set_child(Some(&label));
+        btn.add_css_class("flat");
+        btn.add_css_class("status-toggle");
+        btn.set_margin_end(4);
+        btn.set_tooltip_text(Some(
+            "Step through every misspelled word, one at a time (Shift+F7)",
+        ));
+        btn.update_property(&[gtk4::accessible::Property::Label("Spell check")]);
+        let (ep, win) = (self.clone(), parent.clone());
+        btn.connect_clicked(move |_| ep.open_spell_walk(&win));
+        self.status_bar
+            .insert_child_after(&btn, Some(&self.search_btn));
+    }
+
     pub fn status_bar_append_left(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
         self.status_bar
             .insert_child_after(w, Some(&self.format_bar_toggle_btn));

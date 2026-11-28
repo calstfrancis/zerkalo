@@ -507,6 +507,7 @@ impl AppWindow {
             editor_pane.status_bar_place_search_after(&btn);
         }
 
+        editor_pane.add_spelling_button(window.upcast_ref());
         editor_pane.set_completion_picks(proj_cfg.completion_picks.clone());
 
         // The header held twelve controls, mixing six text buttons with six
